@@ -3,15 +3,164 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hello World</title>
+  <title>GoDojo — Learn to Play Go</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main class="container">
-    <h1 id="greeting">Hello, World!</h1>
-    <p class="subtitle">A simple website with HTML, CSS, and JavaScript.</p>
-    <button id="change-btn" type="button">Change greeting</button>
+  <header class="site-header">
+    <a href="#" class="logo" data-view="home">Go<span>Dojo</span></a>
+    <nav class="main-nav">
+      <button class="nav-link active" data-view="home">Home</button>
+      <button class="nav-link" data-view="learn">Learn</button>
+      <button class="nav-link" data-view="play">Play</button>
+      <button class="nav-link" data-view="puzzles">Puzzles</button>
+    </nav>
+    <button class="nav-cta" data-view="learn">Start Learning</button>
+  </header>
+
+  <main>
+    <!-- HOME -->
+    <section id="view-home" class="view active">
+      <div class="hero">
+        <div class="hero-text">
+          <p class="eyebrow">The ancient game of strategy</p>
+          <h1>Learn Go.<br>Master the board.</h1>
+          <p class="hero-desc">
+            Go is one of the oldest board games in the world. Two players compete to surround
+            territory on a grid — simple rules, endless depth. Start from zero and play your first game.
+          </p>
+          <div class="hero-actions">
+            <button class="btn btn-primary" data-view="learn">Start Free Lessons</button>
+            <button class="btn btn-secondary" data-view="play">Play on the Board</button>
+          </div>
+          <div class="hero-stats">
+            <div><strong>4,000+</strong><span>years of history</span></div>
+            <div><strong>6</strong><span>guided lessons</span></div>
+            <div><strong>3</strong><span>practice puzzles</span></div>
+          </div>
+        </div>
+        <div class="hero-board-wrap">
+          <div id="hero-board" class="go-board mini" aria-label="Decorative Go board"></div>
+        </div>
+      </div>
+
+      <div class="feature-grid">
+        <article class="feature-card">
+          <div class="feature-icon">📖</div>
+          <h3>Step-by-step lessons</h3>
+          <p>Learn rules, capturing, eyes, and scoring through short interactive guides.</p>
+          <button class="link-btn" data-view="learn">Browse lessons →</button>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon">⚫</div>
+          <h3>Play on a real board</h3>
+          <p>Place stones on a 9×9 board with full capture logic — just like a real game.</p>
+          <button class="link-btn" data-view="play">Open board →</button>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon">🧩</div>
+          <h3>Train with puzzles</h3>
+          <p>Solve tsumego problems to sharpen your reading and tactical vision.</p>
+          <button class="link-btn" data-view="puzzles">Try puzzles →</button>
+        </article>
+      </div>
+    </section>
+
+    <!-- LEARN -->
+    <section id="view-learn" class="view">
+      <div class="learn-layout">
+        <aside class="lesson-sidebar">
+          <h2>Lessons</h2>
+          <p class="sidebar-desc">Work through each topic in order.</p>
+          <ul id="lesson-list" class="lesson-list"></ul>
+        </aside>
+        <div class="lesson-content">
+          <div class="lesson-header">
+            <span id="lesson-number" class="lesson-badge">Lesson 1</span>
+            <h2 id="lesson-title">Welcome to Go</h2>
+          </div>
+          <div class="lesson-body">
+            <div id="lesson-board" class="go-board lesson-board" aria-label="Lesson board"></div>
+            <div class="lesson-text-panel">
+              <p id="lesson-text" class="lesson-text"></p>
+              <div class="lesson-step-nav">
+                <button id="lesson-prev" class="btn btn-ghost" disabled>← Previous</button>
+                <span id="lesson-step-indicator">Step 1 of 1</span>
+                <button id="lesson-next" class="btn btn-primary">Next →</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PLAY -->
+    <section id="view-play" class="view">
+      <div class="play-layout">
+        <div class="board-panel">
+          <div id="play-board" class="go-board" aria-label="9 by 9 Go board"></div>
+        </div>
+        <aside class="play-sidebar">
+          <h2>Play Go</h2>
+          <p>Click an intersection to place a stone. Black plays first.</p>
+          <div class="turn-indicator">
+            <span id="current-player-stone" class="stone-preview black"></span>
+            <span id="current-player-label">Black to play</span>
+          </div>
+          <div class="play-info">
+            <div class="info-row"><span>Captures (Black)</span><strong id="captures-black">0</strong></div>
+            <div class="info-row"><span>Captures (White)</span><strong id="captures-white">0</strong></div>
+            <div class="info-row"><span>Move number</span><strong id="move-count">0</strong></div>
+          </div>
+          <div class="play-actions">
+            <button id="pass-btn" class="btn btn-ghost">Pass</button>
+            <button id="reset-btn" class="btn btn-secondary">New Game</button>
+          </div>
+          <div class="rules-reminder">
+            <h4>Quick rules</h4>
+            <ul>
+              <li>Stones connect along the lines (not diagonally).</li>
+              <li>Remove groups with no liberties (empty adjacent points).</li>
+              <li>Suicide moves are not allowed.</li>
+              <li>Pass twice to end — most territory wins.</li>
+            </ul>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- PUZZLES -->
+    <section id="view-puzzles" class="view">
+      <div class="puzzles-layout">
+        <aside class="puzzle-sidebar">
+          <h2>Puzzles</h2>
+          <p class="sidebar-desc">Find the right move. Black plays first unless noted.</p>
+          <ul id="puzzle-list" class="lesson-list"></ul>
+        </aside>
+        <div class="puzzle-content">
+          <div class="puzzle-header">
+            <span id="puzzle-difficulty" class="lesson-badge">Beginner</span>
+            <h2 id="puzzle-title">Capture the stone</h2>
+          </div>
+          <p id="puzzle-desc" class="puzzle-desc"></p>
+          <div class="puzzle-body">
+            <div id="puzzle-board" class="go-board" aria-label="Puzzle board"></div>
+            <div class="puzzle-feedback-panel">
+              <p id="puzzle-feedback" class="puzzle-feedback">Find the correct move.</p>
+              <button id="puzzle-hint" class="btn btn-ghost">Show hint</button>
+              <button id="puzzle-reset" class="btn btn-secondary">Reset puzzle</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
+
+  <footer class="site-footer">
+    <p>GoDojo — Learn Go with HTML, CSS &amp; JavaScript</p>
+    <p class="footer-note">Board size: 9×9 (beginner standard)</p>
+  </footer>
+
   <script src="script.js"></script>
 </body>
 </html>
