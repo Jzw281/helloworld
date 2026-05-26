@@ -6,6 +6,7 @@ const BOARD_SIZES = [9, 13, 19];
 const GAMES_KEY = "goDojoGames";
 const RATING_KEY = "goDojoPuzzleRating";
 const COLOR_NAMES = { [BLACK]: "Black", [WHITE]: "White" };
+const BOARD_INSET = 6; // % margin — lines and stones share this coordinate system
 
 /* ===== Go Board Engine ===== */
 class GoBoard {
@@ -32,6 +33,13 @@ class GoBoard {
   setSizeClass() {
     BOARD_SIZES.forEach((s) => this.container.classList.remove(`size-${s}`));
     this.container.classList.add(`size-${this.size}`);
+    const span = 100 - 2 * BOARD_INSET;
+    this.container.style.setProperty("--stone-size", `${(span / (this.size - 1)) * 0.92}%`);
+  }
+
+  linePos(index) {
+    const span = 100 - 2 * BOARD_INSET;
+    return BOARD_INSET + (index / (this.size - 1)) * span;
   }
 
   render() {
@@ -41,68 +49,78 @@ class GoBoard {
     if (this.options.mini) this.container.classList.add("mini");
     this.container.classList.toggle("readonly", this.readOnly);
 
-    const grid = document.createElement("div");
-    grid.className = "board-grid";
-    grid.style.gridTemplateColumns = `repeat(${this.size}, 1fr)`;
-    grid.style.gridTemplateRows = `repeat(${this.size}, 1fr)`;
+    const playfield = document.createElement("div");
+    playfield.className = "board-playfield";
 
     const lines = document.createElement("div");
     lines.className = "board-lines";
     this.drawLines(lines);
     this.drawStarPoints(lines);
+    playfield.appendChild(lines);
 
     for (let r = 0; r < this.size; r++) {
       for (let c = 0; c < this.size; c++) {
-        const cell = document.createElement("div");
+        const cell = document.createElement("button");
+        cell.type = "button";
         cell.className = "intersection";
+        cell.style.left = `${this.linePos(c)}%`;
+        cell.style.top = `${this.linePos(r)}%`;
+
         const stone = this.grid[r][c];
         if (stone !== EMPTY) {
           cell.classList.add("occupied");
-          const stoneEl = document.createElement("div");
+          cell.disabled = true;
+          const stoneEl = document.createElement("span");
           stoneEl.className = `stone ${stone === BLACK ? "black" : "white"}`;
           if (this.lastMove && this.lastMove[0] === r && this.lastMove[1] === c) {
             stoneEl.classList.add("last-move");
           }
           cell.appendChild(stoneEl);
         } else if (!this.readOnly) {
-          const hover = document.createElement("div");
+          const hover = document.createElement("span");
           hover.className = "hover-stone";
+          hover.setAttribute("aria-hidden", "true");
           cell.appendChild(hover);
-          const previewColor = this.allowedColor || this.currentPlayer;
-          if (previewColor === WHITE) cell.classList.add("preview-white");
+          if ((this.allowedColor || this.currentPlayer) === WHITE) {
+            cell.classList.add("preview-white");
+          }
         }
-        if (!this.readOnly && !this.frozen) {
-          cell.addEventListener("click", () => this.handleClick(r, c));
+
+        if (!this.readOnly && !this.frozen && stone === EMPTY) {
+          cell.addEventListener("click", (e) => {
+            e.preventDefault();
+            this.handleClick(r, c);
+          });
+        } else {
+          cell.disabled = true;
         }
-        grid.appendChild(cell);
+
+        playfield.appendChild(cell);
       }
     }
 
-    this.container.appendChild(lines);
-    this.container.appendChild(grid);
+    this.container.appendChild(playfield);
   }
 
   drawLines(container) {
-    const pct = (i) => `${(i / (this.size - 1)) * 100}%`;
     for (let i = 0; i < this.size; i++) {
       const h = document.createElement("div");
       h.className = "board-line-h";
-      h.style.top = pct(i);
+      h.style.top = `${this.linePos(i)}%`;
       container.appendChild(h);
       const v = document.createElement("div");
       v.className = "board-line-v";
-      v.style.left = pct(i);
+      v.style.left = `${this.linePos(i)}%`;
       container.appendChild(v);
     }
   }
 
   drawStarPoints(container) {
-    const pct = (i) => `${(i / (this.size - 1)) * 100}%`;
     this.getStarPoints().forEach(([r, c]) => {
       const star = document.createElement("div");
       star.className = "star-point";
-      star.style.top = pct(r);
-      star.style.left = pct(c);
+      star.style.top = `${this.linePos(r)}%`;
+      star.style.left = `${this.linePos(c)}%`;
       container.appendChild(star);
     });
   }
@@ -140,7 +158,8 @@ class GoBoard {
     if (move && this.onMove) this.onMove(move);
   }
 
-  playAt(row, col) {
+  playAt(row, col, force = false) {
+    if (!force && this.frozen) return null;
     if (this.grid[row][col] !== EMPTY) return null;
     const color = this.currentPlayer;
     const result = this.tryPlay(row, col, color);
@@ -313,6 +332,12 @@ class GoBoard {
     this.moveCount = 0;
     this.lastMove = null;
     this.frozen = false;
+    this.render();
+  }
+
+  ensurePlayable() {
+    this.frozen = false;
+    this.readOnly = false;
     this.render();
   }
 }
@@ -782,83 +807,321 @@ function validateAllPuzzles() {
   return failures;
 }
 
-function generateRatedPuzzle(playerRating) {
+function validateRatedTemplates() {
+  const failures = [];
+  RATED_TEMPLATES.forEach((t, i) => {
+    const p = { ...clonePuzzleTemplate(t, 0, 0), type: t.type || "capture", player: BLACK };
+    const v = validatePuzzle(p);
+    if (!v.valid) failures.push({ id: `rated-${i}`, title: t.desc, reason: v.reason });
+  });
+  if (failures.length) console.warn("Invalid rated templates:", failures);
+  return failures;
+}
+
+let recentPuzzleHashes = [];
+
+function puzzleHash(stones) {
+  return stones
+    .map((s) => `${s.row},${s.col},${s.color}`)
+    .sort()
+    .join("|");
+}
+
+function offsetStones(stones, dr, dc) {
+  return stones.map((s) => ({ ...s, row: s.row + dr, col: s.col + dc }));
+}
+
+function clonePuzzleTemplate(tpl, dr, dc) {
   const size = 9;
-  const types =
-    playerRating < 500
-      ? ["capture1"]
-      : playerRating < 700
-        ? ["capture1", "capture2"]
-        : ["capture1", "capture2", "cut"];
+  const nr = tpl.solution.row + dr;
+  const nc = tpl.solution.col + dc;
+  if (nr < 0 || nr >= size || nc < 0 || nc >= size) return null;
+  for (const s of tpl.stones) {
+    if (s.row + dr < 0 || s.row + dr >= size || s.col + dc < 0 || s.col + dc >= size) {
+      return null;
+    }
+  }
+  return {
+    type: tpl.type || "capture",
+    size,
+    stones: offsetStones(tpl.stones, dr, dc),
+    solution: { row: nr, col: nc },
+    desc: tpl.desc,
+    hint: tpl.hint,
+    minRating: tpl.minRating,
+  };
+}
 
-  for (let attempt = 0; attempt < 80; attempt++) {
-    const type = types[Math.floor(Math.random() * types.length)];
-    let puzzle = null;
+/* Pre-validated rated templates (harder, varied shapes) */
+const RATED_TEMPLATES = [
+  {
+    minRating: 350,
+    desc: "White's group looks large — find the vital point.",
+    hint: "Play inside the eye space.",
+    type: "capture",
+    stones: [
+      { row: 3, col: 3, color: WHITE }, { row: 3, col: 4, color: WHITE }, { row: 3, col: 5, color: WHITE },
+      { row: 4, col: 3, color: WHITE }, { row: 4, col: 5, color: WHITE },
+      { row: 2, col: 3, color: BLACK }, { row: 2, col: 4, color: BLACK }, { row: 2, col: 5, color: BLACK },
+      { row: 3, col: 2, color: BLACK }, { row: 4, col: 2, color: BLACK },
+      { row: 5, col: 3, color: BLACK }, { row: 5, col: 4, color: BLACK }, { row: 5, col: 5, color: BLACK },
+      { row: 4, col: 6, color: BLACK }, { row: 3, col: 6, color: BLACK },
+    ],
+    solution: { row: 4, col: 4 },
+  },
+  {
+    minRating: 400,
+    desc: "Cut through white's connection and capture.",
+    hint: "Play between the two weak white stones.",
+    type: "capture",
+    stones: [
+      { row: 4, col: 2, color: WHITE }, { row: 4, col: 4, color: WHITE },
+      { row: 3, col: 2, color: BLACK }, { row: 3, col: 4, color: BLACK },
+      { row: 5, col: 2, color: BLACK }, { row: 5, col: 4, color: BLACK },
+      { row: 4, col: 1, color: BLACK }, { row: 4, col: 5, color: BLACK },
+    ],
+    solution: { row: 4, col: 3 },
+  },
+  {
+    minRating: 450,
+    desc: "White thought the corner was safe. Fill the last liberty.",
+    hint: "Play on the only open point next to white.",
+    type: "capture",
+    stones: [
+      { row: 0, col: 1, color: WHITE },
+      { row: 1, col: 0, color: BLACK },
+      { row: 1, col: 1, color: BLACK },
+      { row: 0, col: 0, color: BLACK },
+    ],
+    solution: { row: 0, col: 2 },
+  },
+  {
+    minRating: 500,
+    desc: "A five-stone white dragon — can you capture it all?",
+    hint: "Remove the last liberty in the center.",
+    type: "capture",
+    stones: [
+      { row: 3, col: 3, color: WHITE }, { row: 3, col: 4, color: WHITE }, { row: 3, col: 5, color: WHITE },
+      { row: 4, col: 3, color: WHITE }, { row: 4, col: 5, color: WHITE },
+      { row: 2, col: 3, color: BLACK }, { row: 2, col: 4, color: BLACK }, { row: 2, col: 5, color: BLACK },
+      { row: 3, col: 2, color: BLACK }, { row: 4, col: 2, color: BLACK },
+      { row: 5, col: 3, color: BLACK }, { row: 5, col: 4, color: BLACK }, { row: 5, col: 5, color: BLACK },
+      { row: 4, col: 6, color: BLACK }, { row: 3, col: 6, color: BLACK },
+    ],
+    solution: { row: 4, col: 4 },
+  },
+  {
+    minRating: 550,
+    desc: "White thought the L-group lives. It doesn't.",
+    hint: "Play at the key point inside the L.",
+    type: "capture",
+    stones: [
+      { row: 2, col: 2, color: WHITE }, { row: 2, col: 3, color: WHITE }, { row: 2, col: 4, color: WHITE },
+      { row: 3, col: 2, color: WHITE }, { row: 4, col: 2, color: WHITE },
+      { row: 1, col: 2, color: BLACK }, { row: 2, col: 1, color: BLACK }, { row: 3, col: 1, color: BLACK },
+      { row: 4, col: 1, color: BLACK }, { row: 4, col: 3, color: BLACK }, { row: 3, col: 4, color: BLACK },
+      { row: 2, col: 5, color: BLACK }, { row: 1, col: 3, color: BLACK },
+    ],
+    solution: { row: 3, col: 3 },
+  },
+  {
+    minRating: 600,
+    desc: "White cuts through black — remove the cutting stone.",
+    hint: "Fill white's last liberty.",
+    type: "capture",
+    stones: [
+      { row: 4, col: 3, color: BLACK },
+      { row: 4, col: 4, color: WHITE },
+      { row: 3, col: 4, color: BLACK },
+      { row: 5, col: 4, color: BLACK },
+      { row: 4, col: 2, color: BLACK },
+    ],
+    solution: { row: 4, col: 5 },
+  },
+  {
+    minRating: 650,
+    desc: "Three white stones on the third line — seal them in.",
+    hint: "Block on the last open side toward the center.",
+    type: "capture",
+    stones: [
+      { row: 2, col: 2, color: WHITE }, { row: 2, col: 3, color: WHITE }, { row: 2, col: 4, color: WHITE },
+      { row: 1, col: 2, color: BLACK }, { row: 1, col: 4, color: BLACK },
+      { row: 3, col: 2, color: BLACK }, { row: 3, col: 3, color: BLACK }, { row: 3, col: 4, color: BLACK },
+      { row: 2, col: 5, color: BLACK },
+    ],
+    solution: { row: 2, col: 1 },
+  },
+  {
+    minRating: 700,
+    desc: "White escapes with two stones — or do they?",
+    hint: "Catch both with one snap.",
+    type: "capture",
+    stones: [
+      { row: 5, col: 4, color: WHITE }, { row: 5, col: 5, color: WHITE },
+      { row: 4, col: 4, color: BLACK }, { row: 4, col: 5, color: BLACK },
+      { row: 6, col: 4, color: BLACK }, { row: 6, col: 5, color: BLACK },
+      { row: 5, col: 3, color: BLACK },
+    ],
+    solution: { row: 5, col: 6 },
+  },
+  {
+    minRating: 750,
+    desc: "Under the stones! Capture the hidden group.",
+    hint: "Fill the liberty white overlooked below.",
+    type: "capture",
+    stones: [
+      { row: 6, col: 3, color: WHITE }, { row: 6, col: 4, color: WHITE },
+      { row: 5, col: 3, color: BLACK }, { row: 5, col: 4, color: BLACK },
+      { row: 7, col: 3, color: BLACK }, { row: 7, col: 4, color: BLACK },
+      { row: 6, col: 2, color: BLACK },
+    ],
+    solution: { row: 6, col: 5 },
+  },
+  {
+    minRating: 800,
+    desc: "Black is surrounded — make two eyes to live!",
+    hint: "Play inside to split the space.",
+    type: "life",
+    stones: [
+      { row: 3, col: 3, color: BLACK }, { row: 3, col: 4, color: BLACK }, { row: 3, col: 5, color: BLACK },
+      { row: 4, col: 3, color: BLACK }, { row: 5, col: 3, color: BLACK },
+      { row: 5, col: 4, color: BLACK }, { row: 5, col: 5, color: BLACK }, { row: 4, col: 5, color: BLACK },
+      { row: 2, col: 3, color: WHITE }, { row: 2, col: 4, color: WHITE }, { row: 2, col: 5, color: WHITE },
+      { row: 4, col: 2, color: WHITE }, { row: 5, col: 2, color: WHITE },
+      { row: 6, col: 3, color: WHITE }, { row: 6, col: 4, color: WHITE }, { row: 6, col: 5, color: WHITE },
+      { row: 4, col: 6, color: WHITE },
+    ],
+    solution: { row: 4, col: 4 },
+  },
+  {
+    minRating: 850,
+    desc: "A loose white pair on the side — punish it.",
+    hint: "Attack their last shared liberty.",
+    type: "capture",
+    stones: [
+      { row: 4, col: 6, color: WHITE }, { row: 5, col: 6, color: WHITE },
+      { row: 3, col: 6, color: BLACK }, { row: 6, col: 6, color: BLACK },
+      { row: 4, col: 5, color: BLACK }, { row: 5, col: 5, color: BLACK },
+      { row: 5, col: 7, color: BLACK },
+    ],
+    solution: { row: 4, col: 7 },
+  },
+];
 
-    if (type === "capture1") puzzle = generateSingleCapture(size);
-    else if (type === "capture2") puzzle = generateDoubleCapture(size);
-    else puzzle = generateCutCapture(size);
+function generateRatedPuzzle(playerRating) {
+  const eligible = RATED_TEMPLATES.filter((t) => t.minRating <= playerRating + 150);
+  const pool = eligible.length ? eligible : RATED_TEMPLATES;
+  const shuffled = [...pool].sort(() => Math.random() - 0.5);
 
+  for (const tpl of shuffled) {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const dr = Math.floor(Math.random() * 3) - 1;
+      const dc = Math.floor(Math.random() * 3) - 1;
+      const shifted = clonePuzzleTemplate(tpl, dr, dc);
+      if (!shifted) continue;
+      const hash = puzzleHash(shifted.stones);
+
+      if (recentPuzzleHashes.includes(hash)) continue;
+
+      const puzzle = {
+        ...shifted,
+        generated: true,
+        difficulty: "Rated",
+        title: "Rated puzzle",
+        player: BLACK,
+        puzzleRating: Math.round(
+          tpl.minRating + (Math.random() * 80 - 40)
+        ),
+        id: `rated-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      };
+
+      const v = validatePuzzle(puzzle);
+      if (!v.valid) continue;
+
+      recentPuzzleHashes.unshift(hash);
+      recentPuzzleHashes = recentPuzzleHashes.slice(0, 12);
+      return puzzle;
+    }
+  }
+
+  return generateProceduralPuzzle(playerRating);
+}
+
+function generateProceduralPuzzle(playerRating) {
+  const size = 9;
+  const generators = [
+    generateRingCapture,
+    generateLShapeCapture,
+    generateDoubleCapture,
+  ];
+  for (let i = 0; i < 60; i++) {
+    const gen = generators[Math.floor(Math.random() * generators.length)];
+    const puzzle = gen(size);
     if (!puzzle) continue;
-
-    const targetRating = Math.max(300, Math.min(1200, playerRating + (Math.random() * 120 - 60)));
     puzzle.generated = true;
     puzzle.difficulty = "Rated";
     puzzle.title = "Rated puzzle";
     puzzle.player = BLACK;
-    puzzle.hint = puzzle.hint || "Find the move that captures.";
-    puzzle.puzzleRating = Math.round(targetRating);
-    puzzle.id = `gen-${Date.now()}-${attempt}`;
-
-    const v = validatePuzzle(puzzle);
-    if (v.valid) return puzzle;
+    puzzle.puzzleRating = Math.round(playerRating + Math.random() * 100 - 50);
+    puzzle.id = `proc-${Date.now()}-${i}`;
+    const hash = puzzleHash(puzzle.stones);
+    if (recentPuzzleHashes.includes(hash)) continue;
+    if (validatePuzzle(puzzle).valid) {
+      recentPuzzleHashes.unshift(hash);
+      recentPuzzleHashes = recentPuzzleHashes.slice(0, 12);
+      return puzzle;
+    }
   }
   return null;
 }
 
-function generateSingleCapture(size) {
-  for (let t = 0; t < 40; t++) {
-    const row = 2 + Math.floor(Math.random() * (size - 4));
-    const col = 2 + Math.floor(Math.random() * (size - 4));
-    const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]].sort(() => Math.random() - 0.5);
-    const [lr, lc] = [row + dirs[0][0], col + dirs[0][1]];
-    if (lr < 0 || lr >= size || lc < 0 || lc >= size) continue;
+function generateRingCapture(size) {
+  const r = 3 + Math.floor(Math.random() * (size - 6));
+  const c = 3 + Math.floor(Math.random() * (size - 6));
+  const stones = [
+    { row: r, col: c, color: WHITE }, { row: r, col: c + 1, color: WHITE }, { row: r, col: c + 2, color: WHITE },
+    { row: r + 1, col: c, color: WHITE }, { row: r + 1, col: c + 2, color: WHITE },
+    { row: r - 1, col: c, color: BLACK }, { row: r - 1, col: c + 1, color: BLACK }, { row: r - 1, col: c + 2, color: BLACK },
+    { row: r, col: c - 1, color: BLACK }, { row: r + 1, col: c - 1, color: BLACK },
+    { row: r + 2, col: c, color: BLACK }, { row: r + 2, col: c + 1, color: BLACK }, { row: r + 2, col: c + 2, color: BLACK },
+    { row: r + 1, col: c + 3, color: BLACK }, { row: r, col: c + 3, color: BLACK },
+  ];
+  return {
+    type: "capture",
+    size,
+    desc: "Capture the white ring — one point inside.",
+    hint: "Play inside the ring.",
+    stones,
+    solution: { row: r + 1, col: c + 1 },
+  };
+}
 
-    const stones = [{ row, col, color: WHITE }];
-    let ok = true;
-    for (let i = 1; i < 4; i++) {
-      const br = row + dirs[i][0];
-      const bc = col + dirs[i][1];
-      if (br < 0 || br >= size || bc < 0 || bc >= size) {
-        ok = false;
-        break;
-      }
-      if (br === lr && bc === lc) {
-        ok = false;
-        break;
-      }
-      stones.push({ row: br, col: bc, color: BLACK });
-    }
-    if (!ok) continue;
-
-    const puzzle = {
-      type: "capture",
-      size,
-      desc: "Black to play. Capture the white stone.",
-      stones,
-      solution: { row: lr, col: lc },
-    };
-    if (validatePuzzle(puzzle).valid) return puzzle;
-  }
-  return null;
+function generateLShapeCapture(size) {
+  const r = 2 + Math.floor(Math.random() * (size - 5));
+  const c = 2 + Math.floor(Math.random() * (size - 5));
+  const stones = [
+    { row: r, col: c, color: WHITE }, { row: r, col: c + 1, color: WHITE }, { row: r, col: c + 2, color: WHITE },
+    { row: r + 1, col: c, color: WHITE }, { row: r + 2, col: c, color: WHITE },
+    { row: r - 1, col: c, color: BLACK }, { row: r, col: c - 1, color: BLACK },
+    { row: r + 1, col: c - 1, color: BLACK }, { row: r + 2, col: c - 1, color: BLACK },
+    { row: r + 2, col: c + 1, color: BLACK }, { row: r + 1, col: c + 2, color: BLACK },
+    { row: r, col: c + 3, color: BLACK }, { row: r - 1, col: c + 1, color: BLACK },
+  ];
+  return {
+    type: "capture",
+    size,
+    desc: "The L-shaped group has only one vital point.",
+    hint: "Play inside the bend of the L.",
+    stones,
+    solution: { row: r + 1, col: c + 1 },
+  };
 }
 
 function generateDoubleCapture(size) {
-  for (let t = 0; t < 40; t++) {
+  for (let t = 0; t < 20; t++) {
     const row = 2 + Math.floor(Math.random() * (size - 4));
     const col = 2 + Math.floor(Math.random() * (size - 4));
     if (col + 2 >= size || row - 1 < 0 || row + 1 >= size || col - 1 < 0) continue;
-
     const stones = [
       { row, col, color: WHITE },
       { row, col: col + 1, color: WHITE },
@@ -868,39 +1131,16 @@ function generateDoubleCapture(size) {
       { row: row + 1, col: col + 1, color: BLACK },
       { row, col: col - 1, color: BLACK },
     ];
-
-    const puzzle = {
+    return {
       type: "capture",
       size,
-      desc: "Black to play. Capture both white stones.",
+      desc: "Two white stones with one shared liberty.",
+      hint: "Fill the last liberty.",
       stones,
       solution: { row, col: col + 2 },
     };
-    if (validatePuzzle(puzzle).valid) return puzzle;
   }
   return null;
-}
-
-function generateCutCapture(size) {
-  const row = 4;
-  const col = 4;
-  const puzzle = {
-    type: "capture",
-    size,
-    desc: "Black to play. Cut and capture both white stones.",
-    stones: [
-      { row, col: col - 1, color: WHITE },
-      { row, col: col + 1, color: WHITE },
-      { row: row - 1, col: col - 1, color: BLACK },
-      { row: row - 1, col: col + 1, color: BLACK },
-      { row: row + 1, col: col - 1, color: BLACK },
-      { row: row + 1, col: col + 1, color: BLACK },
-      { row, col: col - 2, color: BLACK },
-      { row, col: col + 2, color: BLACK },
-    ],
-    solution: { row, col },
-  };
-  return validatePuzzle(puzzle).valid ? puzzle : null;
 }
 
 /* ===== Puzzles ===== */
@@ -1454,9 +1694,13 @@ function startNewGame() {
   botThinking = false;
 
   if (playBoard && playBoard.size !== playSize) {
-    playBoard.resize(playSize);
-  } else if (playBoard) {
+    playBoard.size = playSize;
+    playBoard.setSizeClass();
+  }
+  if (playBoard) {
     playBoard.reset();
+    playBoard.ensurePlayable();
+    playBoard.onMove = onPlayMove;
   }
 
   document.getElementById("game-status").textContent = "";
@@ -1555,10 +1799,11 @@ function botTurn() {
   }
 
   const [row, col] = move;
-  const result = playBoard.playAt(row, col);
+  const result = playBoard.playAt(row, col, true);
   if (result) recordMove(result);
   botThinking = false;
   playBoard.frozen = gameEnded;
+  if (!gameEnded) playBoard.render();
   updatePlayUI();
 }
 
@@ -1692,18 +1937,9 @@ document.querySelectorAll(".filter-btn").forEach((btn) => {
 });
 
 document.querySelectorAll(".puzzle-mode-btn").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".puzzle-mode-btn").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    puzzleMode = btn.dataset.pmode;
-    const isRated = puzzleMode === "rated";
-    document.getElementById("classic-puzzle-filters").classList.toggle("hidden", isRated);
-    document.getElementById("puzzle-list").classList.toggle("hidden", isRated);
-    document.getElementById("rated-next-btn").classList.toggle("hidden", !isRated);
-    document.getElementById("puzzle-sidebar-desc").textContent = isRated
-      ? "Random puzzles matched to your rating. Gain points for correct answers."
-      : "Curated puzzles by difficulty.";
-    if (isRated) loadRatedPuzzle();
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (btn.dataset.pmode === "rated") loadRatedPuzzle();
     else loadPuzzle(currentPuzzle);
   });
 });
@@ -1711,6 +1947,7 @@ document.querySelectorAll(".puzzle-mode-btn").forEach((btn) => {
 document.getElementById("rated-next-btn").addEventListener("click", loadRatedPuzzle);
 
 function displayPuzzle(puzzle) {
+  if (!puzzle) return;
   activePuzzle = puzzle;
   const size = puzzle.size || 9;
 
@@ -1730,12 +1967,11 @@ function displayPuzzle(puzzle) {
 
   const el = document.getElementById("puzzle-board");
   if (!puzzleBoard || puzzleBoard.size !== size) {
-    puzzleBoard = new GoBoard(el, size, {
-      onMove: (move) => checkPuzzleMove(move),
-    });
+    puzzleBoard = new GoBoard(el, size);
   }
-
+  puzzleBoard.onMove = (move) => checkPuzzleMove(move);
   puzzleBoard.readOnly = false;
+  puzzleBoard.frozen = false;
   puzzleBoard.allowedColor = puzzle.player || BLACK;
   puzzleBoard.reset();
   puzzleBoard.setPosition(puzzle.stones, puzzle.player || BLACK);
@@ -1748,17 +1984,31 @@ function loadPuzzle(index) {
   const puzzle = PUZZLES.find((p) => p.id === index) || PUZZLES[0];
   currentPuzzle = puzzle.id;
   puzzleMode = "classic";
+  document.querySelectorAll(".puzzle-mode-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.pmode === "classic");
+  });
+  document.getElementById("classic-puzzle-filters").classList.remove("hidden");
+  document.getElementById("puzzle-list").classList.remove("hidden");
+  document.getElementById("rated-next-btn").classList.add("hidden");
   displayPuzzle(puzzle);
 }
 
 function loadRatedPuzzle() {
-  const puzzle = generateRatedPuzzle(puzzleRating);
-  if (!puzzle) {
-    document.getElementById("puzzle-feedback").textContent =
-      "Could not generate a puzzle — try again.";
-    return;
-  }
   puzzleMode = "rated";
+  document.querySelectorAll(".puzzle-mode-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.pmode === "rated");
+  });
+  document.getElementById("classic-puzzle-filters").classList.add("hidden");
+  document.getElementById("puzzle-list").classList.add("hidden");
+  document.getElementById("rated-next-btn").classList.remove("hidden");
+  document.getElementById("puzzle-sidebar-desc").textContent =
+    "Random puzzles matched to your rating. Gain points for correct answers.";
+
+  let puzzle = generateRatedPuzzle(puzzleRating);
+  if (!puzzle) {
+    const fallback = PUZZLES.filter((p) => p.difficulty === "Advanced");
+    puzzle = { ...fallback[Math.floor(Math.random() * fallback.length)], generated: true };
+  }
   displayPuzzle(puzzle);
 }
 
@@ -1997,6 +2247,7 @@ function initHeroBoard() {
 
 /* ===== Init ===== */
 const puzzleFailures = validateAllPuzzles();
+validateRatedTemplates();
 if (puzzleFailures.length) {
   console.error("Fix these puzzles before shipping:", puzzleFailures);
 }

@@ -336,20 +336,14 @@ body {
   cursor: default;
 }
 
-.go-board.readonly .intersection:hover:not(.occupied)::after {
-  display: none;
-}
-
-.board-grid {
+.board-playfield {
   position: absolute;
   inset: 0;
-  display: grid;
-  padding: 6%;
 }
 
 .board-lines {
   position: absolute;
-  inset: 6%;
+  inset: 0;
   pointer-events: none;
 }
 
@@ -382,48 +376,57 @@ body {
 }
 
 .intersection {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: absolute;
+  width: var(--stone-size, 10%);
+  height: var(--stone-size, 10%);
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  transform: translate(-50%, -50%);
   cursor: pointer;
   z-index: 2;
+  display: block;
 }
 
+.intersection:disabled {
+  cursor: default;
+}
+
+.intersection:focus {
+  outline: none;
+}
+
+.intersection .stone,
 .intersection .hover-stone {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 88%;
-  height: 88%;
+  width: 100%;
+  height: 100%;
   border-radius: 50%;
-  transform: translate(-50%, -50%) scale(0.85);
-  background: rgba(0, 0, 0, 0.22);
+  transform: translate(-50%, -50%);
   pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.1s;
-  z-index: 1;
 }
 
-.intersection:hover:not(.occupied) .hover-stone {
+.intersection .hover-stone {
+  background: rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  transition: opacity 0.1s;
+  box-shadow: none;
+}
+
+.intersection:not(:disabled):hover .hover-stone {
   opacity: 1;
 }
 
 .intersection.preview-white .hover-stone {
-  background: radial-gradient(circle at 35% 35%, rgba(255,255,255,0.9), rgba(200,200,200,0.75));
-  border: 1px solid rgba(180, 180, 180, 0.6);
+  background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.95), rgba(210, 210, 210, 0.85));
+  border: 1px solid rgba(170, 170, 170, 0.7);
 }
 
-.intersection.occupied {
-  cursor: default;
-}
-
-.stone {
-  width: 88%;
-  height: 88%;
-  border-radius: 50%;
+.intersection .stone {
   box-shadow: 1px 2px 4px rgba(0, 0, 0, 0.45);
-  pointer-events: none;
   animation: placeStone 0.15s ease;
 }
 
