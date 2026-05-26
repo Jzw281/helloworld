@@ -36,7 +36,7 @@
           </div>
           <div class="hero-stats">
             <div><strong>3</strong><span>board sizes</span></div>
-            <div><strong>12+</strong><span>puzzles</span></div>
+            <div><strong>20+</strong><span>puzzles</span></div>
             <div><strong>∞</strong><span>game reviews</span></div>
           </div>
         </div>
@@ -173,14 +173,24 @@
       <div class="puzzles-layout">
         <aside class="puzzle-sidebar">
           <h2>Puzzles</h2>
-          <p class="sidebar-desc">Find the right move. Black plays first unless noted.</p>
-          <div class="puzzle-filters">
+          <div class="rating-card">
+            <div class="rating-value" id="puzzle-rating-value">400</div>
+            <div class="rating-label">Puzzle rating</div>
+            <div class="rating-change" id="puzzle-rating-change"></div>
+          </div>
+          <div class="puzzle-mode-tabs">
+            <button class="puzzle-mode-btn active" data-pmode="classic">Classic</button>
+            <button class="puzzle-mode-btn" data-pmode="rated">Rated</button>
+          </div>
+          <p class="sidebar-desc" id="puzzle-sidebar-desc">Curated puzzles by difficulty.</p>
+          <div id="classic-puzzle-filters" class="puzzle-filters">
             <button class="filter-btn active" data-filter="all">All</button>
             <button class="filter-btn" data-filter="Beginner">Beginner</button>
             <button class="filter-btn" data-filter="Intermediate">Intermediate</button>
             <button class="filter-btn" data-filter="Advanced">Advanced</button>
           </div>
           <ul id="puzzle-list" class="lesson-list"></ul>
+          <button id="rated-next-btn" class="btn btn-primary hidden" style="width:100%;margin-top:0.5rem">New rated puzzle</button>
         </aside>
         <div class="puzzle-content">
           <div class="puzzle-header">

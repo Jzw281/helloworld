@@ -4,6 +4,7 @@ const BLACK = 1;
 const WHITE = 2;
 const BOARD_SIZES = [9, 13, 19];
 const GAMES_KEY = "goDojoGames";
+const RATING_KEY = "goDojoPuzzleRating";
 const COLOR_NAMES = { [BLACK]: "Black", [WHITE]: "White" };
 
 /* ===== Go Board Engine ===== */
@@ -63,6 +64,12 @@ class GoBoard {
             stoneEl.classList.add("last-move");
           }
           cell.appendChild(stoneEl);
+        } else if (!this.readOnly) {
+          const hover = document.createElement("div");
+          hover.className = "hover-stone";
+          cell.appendChild(hover);
+          const previewColor = this.allowedColor || this.currentPlayer;
+          if (previewColor === WHITE) cell.classList.add("preview-white");
         }
         if (!this.readOnly && !this.frozen) {
           cell.addEventListener("click", () => this.handleClick(r, c));
@@ -560,7 +567,341 @@ const LESSONS = [
       },
     ],
   },
+  {
+    id: 6,
+    title: "Opening Strategy",
+    steps: [
+      {
+        text: "The opening (first ~30 moves) sets the tone. Strong players claim corners first — they're easiest to defend. Then sides, then center. Corners are worth more per stone than the middle.",
+        stones: [
+          { row: 2, col: 2, color: BLACK },
+          { row: 6, col: 6, color: WHITE },
+          { row: 2, col: 6, color: BLACK },
+        ],
+      },
+      {
+        text: "Don't spread too thin. Each stone should work with neighbors to build territory or attack. Random center stones are weak unless they connect to a larger plan.",
+        stones: [
+          { row: 3, col: 3, color: BLACK },
+          { row: 3, col: 4, color: BLACK },
+          { row: 4, col: 3, color: BLACK },
+          { row: 5, col: 5, color: WHITE },
+        ],
+      },
+    ],
+  },
+  {
+    id: 7,
+    title: "Star Points & 3-3",
+    steps: [
+      {
+        text: "The 4-4 point (star point on 9×9) balances corner territory and side influence. It's the most popular opening. Black here threatens to take the corner while building influence toward the center.",
+        stones: [{ row: 2, col: 2, color: BLACK }],
+      },
+      {
+        text: "The 3-3 point (one line closer to the corner) takes the corner immediately but gives the opponent outside influence. Trade: safe small territory now vs. potential pressure later.",
+        stones: [
+          { row: 2, col: 2, color: BLACK },
+          { row: 2, col: 3, color: WHITE },
+        ],
+      },
+    ],
+  },
+  {
+    id: 8,
+    title: "Common Shapes",
+    steps: [
+      {
+        text: "The tiger's mouth: two stones with a gap — if opponent plays inside, you capture. The empty point is a trap. Recognizing this shape helps you attack and defend corners.",
+        stones: [
+          { row: 4, col: 3, color: BLACK },
+          { row: 4, col: 5, color: BLACK },
+          { row: 3, col: 4, color: BLACK },
+          { row: 5, col: 4, color: WHITE },
+        ],
+      },
+      {
+        text: "The bamboo joint: two pairs of connected stones offset by one. Very hard to cut. When you see this shape, the connection is solid.",
+        stones: [
+          { row: 3, col: 3, color: BLACK },
+          { row: 3, col: 4, color: BLACK },
+          { row: 4, col: 4, color: BLACK },
+          { row: 4, col: 5, color: BLACK },
+        ],
+      },
+    ],
+  },
+  {
+    id: 9,
+    title: "Tactics: Ladder & Net",
+    steps: [
+      {
+        text: "A ladder is a diagonal chase — the chased group has one escape path until it hits a friendly stone (ladder breaker) or the edge. Always read ahead before starting a ladder!",
+        stones: [
+          { row: 2, col: 2, color: WHITE },
+          { row: 3, col: 2, color: BLACK },
+          { row: 2, col: 3, color: BLACK },
+          { row: 4, col: 3, color: BLACK },
+        ],
+      },
+      {
+        text: "A net surrounds stones with gaps they can't slip through. Unlike a ladder, a net often works even without support. Look for stones that block two escape routes at once.",
+        stones: [
+          { row: 4, col: 3, color: WHITE },
+          { row: 3, col: 4, color: BLACK },
+          { row: 5, col: 4, color: BLACK },
+          { row: 4, col: 5, color: BLACK },
+          { row: 4, col: 2, color: BLACK },
+        ],
+      },
+    ],
+  },
+  {
+    id: 10,
+    title: "Strategy: Influence vs Territory",
+    steps: [
+      {
+        text: "Territory is confirmed points — corners and sides you've surrounded. Influence is power projecting toward the center. Influence can become territory later, but isn't points yet.",
+        stones: [
+          { row: 1, col: 1, color: BLACK },
+          { row: 1, col: 2, color: BLACK },
+          { row: 2, col: 1, color: BLACK },
+          { row: 4, col: 4, color: WHITE },
+          { row: 5, col: 5, color: WHITE },
+        ],
+      },
+      {
+        text: "Thickness is strong, connected stones facing open space. Don't attack with thickness — use it to support attacks elsewhere. Weak groups run; strong groups make the opponent run.",
+        stones: [
+          { row: 2, col: 4, color: BLACK },
+          { row: 3, col: 4, color: BLACK },
+          { row: 4, col: 4, color: BLACK },
+          { row: 3, col: 3, color: BLACK },
+          { row: 3, col: 5, color: BLACK },
+          { row: 6, col: 6, color: WHITE },
+        ],
+      },
+    ],
+  },
 ];
+
+/* ===== Puzzle Validation & Generation ===== */
+function boardFromStones(size, stones) {
+  const b = new GoBoard(document.createElement("div"), size, { readOnly: true });
+  b.setPosition(stones, BLACK);
+  return b;
+}
+
+function countLibertiesAt(board, row, col) {
+  if (board.grid[row][col] === EMPTY) return 0;
+  return board.countLiberties(board.getGroup(row, col));
+}
+
+function validatePuzzle(puzzle) {
+  const size = puzzle.size || 9;
+  const { stones, solution, player, type = "capture" } = puzzle;
+
+  if (solution.row < 0 || solution.row >= size || solution.col < 0 || solution.col >= size) {
+    return { valid: false, reason: "Solution out of bounds" };
+  }
+
+  const board = boardFromStones(size, stones);
+  if (board.grid[solution.row][solution.col] !== EMPTY) {
+    return { valid: false, reason: "Solution point occupied" };
+  }
+
+  const targetColor = player === BLACK ? WHITE : BLACK;
+  const targetGroups = [];
+  const seen = new Set();
+
+  if (type === "capture") {
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) {
+        if (board.grid[r][c] !== targetColor) continue;
+        const key = board
+          .getGroup(r, c)
+          .map(([gr, gc]) => `${gr},${gc}`)
+          .sort()
+          .join("|");
+        if (seen.has(key)) continue;
+        seen.add(key);
+        targetGroups.push(board.getGroup(r, c));
+      }
+    }
+    if (targetGroups.length === 0) {
+      return { valid: false, reason: "No target stones" };
+    }
+    for (const group of targetGroups) {
+      const groupLibs = board.countLiberties(group);
+      if (groupLibs !== 1) {
+        return {
+          valid: false,
+          reason: `Target group has ${groupLibs} liberties, expected 1`,
+        };
+      }
+    }
+  }
+
+  const trial = board.clone();
+  trial.currentPlayer = player;
+  const result = trial.tryPlay(solution.row, solution.col, player);
+  if (!result.ok) return { valid: false, reason: "Solution is illegal" };
+
+  if (type === "capture") {
+    if (result.captures < 1) {
+      return { valid: false, reason: "Solution does not capture" };
+    }
+    for (const group of targetGroups) {
+      for (const [r, c] of group) {
+        if (trial.grid[r][c] === targetColor) {
+          return { valid: false, reason: "Target stones still on board" };
+        }
+      }
+    }
+  }
+
+  if (type === "life") {
+    const own = trial.getGroup(solution.row, solution.col);
+    if (trial.countLiberties(own) < 2) {
+      return { valid: false, reason: "Group not alive after solution" };
+    }
+  }
+
+  return { valid: true, captures: result.captures };
+}
+
+function validateAllPuzzles() {
+  const failures = [];
+  PUZZLES.forEach((p) => {
+    const v = validatePuzzle(p);
+    if (!v.valid) failures.push({ id: p.id, title: p.title, reason: v.reason });
+  });
+  if (failures.length) {
+    console.warn("Invalid puzzles:", failures);
+  }
+  return failures;
+}
+
+function generateRatedPuzzle(playerRating) {
+  const size = 9;
+  const types =
+    playerRating < 500
+      ? ["capture1"]
+      : playerRating < 700
+        ? ["capture1", "capture2"]
+        : ["capture1", "capture2", "cut"];
+
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const type = types[Math.floor(Math.random() * types.length)];
+    let puzzle = null;
+
+    if (type === "capture1") puzzle = generateSingleCapture(size);
+    else if (type === "capture2") puzzle = generateDoubleCapture(size);
+    else puzzle = generateCutCapture(size);
+
+    if (!puzzle) continue;
+
+    const targetRating = Math.max(300, Math.min(1200, playerRating + (Math.random() * 120 - 60)));
+    puzzle.generated = true;
+    puzzle.difficulty = "Rated";
+    puzzle.title = "Rated puzzle";
+    puzzle.player = BLACK;
+    puzzle.hint = puzzle.hint || "Find the move that captures.";
+    puzzle.puzzleRating = Math.round(targetRating);
+    puzzle.id = `gen-${Date.now()}-${attempt}`;
+
+    const v = validatePuzzle(puzzle);
+    if (v.valid) return puzzle;
+  }
+  return null;
+}
+
+function generateSingleCapture(size) {
+  for (let t = 0; t < 40; t++) {
+    const row = 2 + Math.floor(Math.random() * (size - 4));
+    const col = 2 + Math.floor(Math.random() * (size - 4));
+    const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]].sort(() => Math.random() - 0.5);
+    const [lr, lc] = [row + dirs[0][0], col + dirs[0][1]];
+    if (lr < 0 || lr >= size || lc < 0 || lc >= size) continue;
+
+    const stones = [{ row, col, color: WHITE }];
+    let ok = true;
+    for (let i = 1; i < 4; i++) {
+      const br = row + dirs[i][0];
+      const bc = col + dirs[i][1];
+      if (br < 0 || br >= size || bc < 0 || bc >= size) {
+        ok = false;
+        break;
+      }
+      if (br === lr && bc === lc) {
+        ok = false;
+        break;
+      }
+      stones.push({ row: br, col: bc, color: BLACK });
+    }
+    if (!ok) continue;
+
+    const puzzle = {
+      type: "capture",
+      size,
+      desc: "Black to play. Capture the white stone.",
+      stones,
+      solution: { row: lr, col: lc },
+    };
+    if (validatePuzzle(puzzle).valid) return puzzle;
+  }
+  return null;
+}
+
+function generateDoubleCapture(size) {
+  for (let t = 0; t < 40; t++) {
+    const row = 2 + Math.floor(Math.random() * (size - 4));
+    const col = 2 + Math.floor(Math.random() * (size - 4));
+    if (col + 2 >= size || row - 1 < 0 || row + 1 >= size || col - 1 < 0) continue;
+
+    const stones = [
+      { row, col, color: WHITE },
+      { row, col: col + 1, color: WHITE },
+      { row: row - 1, col, color: BLACK },
+      { row: row - 1, col: col + 1, color: BLACK },
+      { row: row + 1, col, color: BLACK },
+      { row: row + 1, col: col + 1, color: BLACK },
+      { row, col: col - 1, color: BLACK },
+    ];
+
+    const puzzle = {
+      type: "capture",
+      size,
+      desc: "Black to play. Capture both white stones.",
+      stones,
+      solution: { row, col: col + 2 },
+    };
+    if (validatePuzzle(puzzle).valid) return puzzle;
+  }
+  return null;
+}
+
+function generateCutCapture(size) {
+  const row = 4;
+  const col = 4;
+  const puzzle = {
+    type: "capture",
+    size,
+    desc: "Black to play. Cut and capture both white stones.",
+    stones: [
+      { row, col: col - 1, color: WHITE },
+      { row, col: col + 1, color: WHITE },
+      { row: row - 1, col: col - 1, color: BLACK },
+      { row: row - 1, col: col + 1, color: BLACK },
+      { row: row + 1, col: col - 1, color: BLACK },
+      { row: row + 1, col: col + 1, color: BLACK },
+      { row, col: col - 2, color: BLACK },
+      { row, col: col + 2, color: BLACK },
+    ],
+    solution: { row, col },
+  };
+  return validatePuzzle(puzzle).valid ? puzzle : null;
+}
 
 /* ===== Puzzles ===== */
 const PUZZLES = [
@@ -569,6 +910,7 @@ const PUZZLES = [
     title: "Capture the stone",
     difficulty: "Beginner",
     size: 9,
+    type: "capture",
     desc: "White has only one liberty left. Where should black play to capture?",
     stones: [
       { row: 4, col: 4, color: WHITE },
@@ -624,34 +966,33 @@ const PUZZLES = [
     title: "Corner capture",
     difficulty: "Beginner",
     size: 9,
+    type: "capture",
     desc: "The white stone in the corner has one liberty. Black to capture.",
     stones: [
       { row: 0, col: 1, color: WHITE },
       { row: 1, col: 0, color: BLACK },
-      { row: 1, col: 2, color: BLACK },
-      { row: 2, col: 1, color: BLACK },
+      { row: 1, col: 1, color: BLACK },
+      { row: 0, col: 0, color: BLACK },
     ],
-    solution: { row: 0, col: 0 },
+    solution: { row: 0, col: 2 },
     player: BLACK,
-    hint: "Corners have fewer escape routes. Fill the last liberty.",
+    hint: "Fill the last liberty along the top edge.",
   },
   {
     id: 4,
-    title: "Atari first",
+    title: "Side capture",
     difficulty: "Beginner",
     size: 9,
-    desc: "Put the white group in atari before capturing on the next move — but this puzzle captures immediately!",
+    type: "capture",
+    desc: "The white stone on the edge has only one liberty left.",
     stones: [
-      { row: 4, col: 4, color: WHITE },
-      { row: 4, col: 5, color: WHITE },
-      { row: 3, col: 4, color: BLACK },
-      { row: 5, col: 5, color: BLACK },
-      { row: 3, col: 5, color: BLACK },
-      { row: 5, col: 3, color: BLACK },
+      { row: 4, col: 0, color: WHITE },
+      { row: 3, col: 0, color: BLACK },
+      { row: 5, col: 0, color: BLACK },
     ],
-    solution: { row: 4, col: 3 },
+    solution: { row: 4, col: 1 },
     player: BLACK,
-    hint: "Attack the white group from the open side.",
+    hint: "Play on the only empty point next to white.",
   },
   {
     id: 5,
@@ -664,21 +1005,20 @@ const PUZZLES = [
       { row: 2, col: 3, color: BLACK },
       { row: 4, col: 3, color: BLACK },
       { row: 3, col: 2, color: BLACK },
-      { row: 3, col: 4, color: BLACK },
     ],
-    solution: { row: 3, col: 5 },
+    solution: { row: 3, col: 4 },
     player: BLACK,
-    hint: "Close off the last escape route on the right.",
+    hint: "Close off the last liberty above the stone.",
   },
   {
     id: 6,
     title: "Cutting stone",
     difficulty: "Intermediate",
     size: 9,
+    type: "capture",
     desc: "White cuts between two black stones. Capture the cutting stone with one move.",
     stones: [
       { row: 4, col: 4, color: BLACK },
-      { row: 4, col: 6, color: BLACK },
       { row: 4, col: 5, color: WHITE },
       { row: 3, col: 5, color: BLACK },
       { row: 5, col: 5, color: BLACK },
@@ -709,6 +1049,7 @@ const PUZZLES = [
     title: "Make two eyes",
     difficulty: "Intermediate",
     size: 9,
+    type: "life",
     desc: "White threatens to capture the black group. Black plays inside to make two eyes and live.",
     stones: [
       { row: 3, col: 3, color: BLACK },
@@ -744,10 +1085,9 @@ const PUZZLES = [
       { row: 0, col: 4, color: WHITE },
       { row: 0, col: 5, color: WHITE },
       { row: 1, col: 3, color: BLACK },
+      { row: 1, col: 4, color: BLACK },
       { row: 1, col: 5, color: BLACK },
-      { row: 2, col: 3, color: BLACK },
-      { row: 2, col: 4, color: BLACK },
-      { row: 2, col: 5, color: BLACK },
+      { row: 0, col: 6, color: BLACK },
     ],
     solution: { row: 0, col: 2 },
     player: BLACK,
@@ -796,6 +1136,171 @@ const PUZZLES = [
     player: BLACK,
     hint: "Play inside the ring to remove the last liberty.",
   },
+  {
+    id: 12,
+    title: "Bottom edge",
+    difficulty: "Beginner",
+    size: 9,
+    type: "capture",
+    desc: "Capture the white stone on the bottom edge.",
+    stones: [
+      { row: 8, col: 4, color: WHITE },
+      { row: 7, col: 4, color: BLACK },
+      { row: 8, col: 5, color: BLACK },
+    ],
+    solution: { row: 8, col: 3 },
+    player: BLACK,
+    hint: "Stones on the edge have fewer escapes.",
+  },
+  {
+    id: 13,
+    title: "Narrow gap",
+    difficulty: "Beginner",
+    size: 9,
+    type: "capture",
+    desc: "Two white stones in a row — capture both.",
+    stones: [
+      { row: 4, col: 4, color: WHITE },
+      { row: 4, col: 5, color: WHITE },
+      { row: 3, col: 4, color: BLACK },
+      { row: 3, col: 5, color: BLACK },
+      { row: 5, col: 4, color: BLACK },
+      { row: 5, col: 5, color: BLACK },
+      { row: 4, col: 3, color: BLACK },
+    ],
+    solution: { row: 4, col: 6 },
+    player: BLACK,
+    hint: "Fill the shared liberty on the right.",
+  },
+  {
+    id: 14,
+    title: "Vertical pair",
+    difficulty: "Beginner",
+    size: 9,
+    type: "capture",
+    desc: "Capture both white stones stacked vertically.",
+    stones: [
+      { row: 4, col: 4, color: WHITE },
+      { row: 5, col: 4, color: WHITE },
+      { row: 3, col: 4, color: BLACK },
+      { row: 6, col: 4, color: BLACK },
+      { row: 4, col: 3, color: BLACK },
+      { row: 5, col: 3, color: BLACK },
+      { row: 5, col: 5, color: BLACK },
+    ],
+    solution: { row: 4, col: 5 },
+    player: BLACK,
+    hint: "Attack from the right — one liberty left.",
+  },
+  {
+    id: 15,
+    title: "Lose the ladder",
+    difficulty: "Intermediate",
+    size: 9,
+    type: "capture",
+    desc: "White is running — cut off the escape with one move.",
+    stones: [
+      { row: 3, col: 3, color: WHITE },
+      { row: 2, col: 3, color: BLACK },
+      { row: 4, col: 3, color: BLACK },
+      { row: 3, col: 2, color: BLACK },
+    ],
+    solution: { row: 3, col: 4 },
+    player: BLACK,
+    hint: "Block the last liberty on the right.",
+  },
+  {
+    id: 16,
+    title: "Clamp",
+    difficulty: "Intermediate",
+    size: 9,
+    type: "capture",
+    desc: "White thought the corner was safe. Prove otherwise.",
+    stones: [
+      { row: 1, col: 6, color: WHITE },
+      { row: 0, col: 6, color: BLACK },
+      { row: 1, col: 5, color: BLACK },
+      { row: 2, col: 6, color: BLACK },
+    ],
+    solution: { row: 1, col: 7 },
+    player: BLACK,
+    hint: "Fill the last liberty on the right.",
+  },
+  {
+    id: 17,
+    title: "Big capture",
+    difficulty: "Advanced",
+    size: 9,
+    type: "capture",
+    desc: "A ring of white has one breath left inside.",
+    stones: [
+      { row: 3, col: 3, color: WHITE },
+      { row: 3, col: 4, color: WHITE },
+      { row: 3, col: 5, color: WHITE },
+      { row: 4, col: 3, color: WHITE },
+      { row: 4, col: 5, color: WHITE },
+      { row: 2, col: 3, color: BLACK },
+      { row: 2, col: 4, color: BLACK },
+      { row: 2, col: 5, color: BLACK },
+      { row: 3, col: 2, color: BLACK },
+      { row: 4, col: 2, color: BLACK },
+      { row: 5, col: 3, color: BLACK },
+      { row: 5, col: 4, color: BLACK },
+      { row: 5, col: 5, color: BLACK },
+      { row: 4, col: 6, color: BLACK },
+      { row: 3, col: 6, color: BLACK },
+    ],
+    solution: { row: 4, col: 4 },
+    player: BLACK,
+    hint: "Play inside the ring.",
+  },
+  {
+    id: 18,
+    title: "13×13 side",
+    difficulty: "Advanced",
+    size: 13,
+    type: "capture",
+    desc: "Larger board — capture the isolated white stone.",
+    stones: [
+      { row: 6, col: 6, color: WHITE },
+      { row: 5, col: 6, color: BLACK },
+      { row: 7, col: 6, color: BLACK },
+      { row: 6, col: 5, color: BLACK },
+    ],
+    solution: { row: 6, col: 7 },
+    player: BLACK,
+    hint: "Fill the last liberty.",
+  },
+  {
+    id: 19,
+    title: "Connect and live",
+    difficulty: "Advanced",
+    size: 9,
+    type: "life",
+    desc: "Black is in danger. Play inside the group to create two eyes.",
+    stones: [
+      { row: 3, col: 3, color: BLACK },
+      { row: 3, col: 4, color: BLACK },
+      { row: 3, col: 5, color: BLACK },
+      { row: 4, col: 3, color: BLACK },
+      { row: 5, col: 3, color: BLACK },
+      { row: 5, col: 4, color: BLACK },
+      { row: 5, col: 5, color: BLACK },
+      { row: 4, col: 5, color: BLACK },
+      { row: 2, col: 3, color: WHITE },
+      { row: 2, col: 4, color: WHITE },
+      { row: 2, col: 5, color: WHITE },
+      { row: 4, col: 2, color: WHITE },
+      { row: 5, col: 2, color: WHITE },
+      { row: 6, col: 3, color: WHITE },
+      { row: 6, col: 4, color: WHITE },
+      { row: 6, col: 5, color: WHITE },
+      { row: 4, col: 6, color: WHITE },
+    ],
+    solution: { row: 4, col: 4 },
+    player: BLACK,
+    hint: "One move inside splits the space into two eyes.",
+  },
 ];
 
 /* ===== App State ===== */
@@ -803,6 +1308,9 @@ let currentLesson = 0;
 let currentStep = 0;
 let currentPuzzle = 0;
 let puzzleFilter = "all";
+let puzzleMode = "classic";
+let activePuzzle = null;
+let puzzleRating = parseInt(localStorage.getItem(RATING_KEY) || "400", 10);
 let lessonProgress = JSON.parse(localStorage.getItem("goLessonProgress") || "{}");
 
 let lessonBoard;
@@ -833,7 +1341,12 @@ function showView(viewId) {
   });
 
   if (viewId === "learn") loadLesson(currentLesson);
-  if (viewId === "puzzles") loadPuzzle(currentPuzzle);
+  if (viewId === "puzzles") {
+    updateRatingDisplay();
+    if (puzzleMode === "rated" && !activePuzzle?.generated) loadRatedPuzzle();
+    else if (activePuzzle) displayPuzzle(activePuzzle);
+    else loadPuzzle(currentPuzzle);
+  }
   if (viewId === "analysis") refreshGameList();
 }
 
@@ -1112,6 +1625,37 @@ document.getElementById("pass-btn").addEventListener("click", () => {
 document.getElementById("reset-btn").addEventListener("click", startNewGame);
 
 /* ===== Puzzles ===== */
+function updateRatingDisplay(change) {
+  document.getElementById("puzzle-rating-value").textContent = puzzleRating;
+  const el = document.getElementById("puzzle-rating-change");
+  if (change > 0) {
+    el.textContent = `+${change} last puzzle`;
+    el.className = "rating-change up";
+  } else if (change < 0) {
+    el.textContent = `${change} last puzzle`;
+    el.className = "rating-change down";
+  } else {
+    el.textContent = "";
+    el.className = "rating-change";
+  }
+}
+
+function adjustRating(puzzle, correct) {
+  const diff = puzzle.puzzleRating - puzzleRating;
+  let delta;
+  if (correct) {
+    delta = Math.round(12 + Math.max(0, diff) * 0.05);
+    delta = Math.min(25, delta);
+  } else {
+    delta = -Math.round(8 + Math.max(0, -diff) * 0.04);
+    delta = Math.max(-20, delta);
+  }
+  puzzleRating = Math.max(100, Math.min(2000, puzzleRating + delta));
+  localStorage.setItem(RATING_KEY, String(puzzleRating));
+  updateRatingDisplay(delta);
+  return delta;
+}
+
 function buildPuzzleList() {
   const list = document.getElementById("puzzle-list");
   list.innerHTML = "";
@@ -1120,17 +1664,17 @@ function buildPuzzleList() {
   );
 
   filtered.forEach((puzzle) => {
-    const i = puzzle.id;
     const li = document.createElement("li");
     const btn = document.createElement("button");
     btn.textContent = puzzle.title;
-    btn.dataset.puzzle = i;
-    if (i === currentPuzzle) btn.classList.add("active");
+    btn.dataset.puzzle = puzzle.id;
+    if (puzzle.id === currentPuzzle && puzzleMode === "classic") btn.classList.add("active");
     btn.addEventListener("click", () => {
-      currentPuzzle = i;
-      loadPuzzle(i);
+      currentPuzzle = puzzle.id;
+      puzzleMode = "classic";
+      loadPuzzle(puzzle.id);
       document.querySelectorAll("#puzzle-list button").forEach((b) => {
-        b.classList.toggle("active", parseInt(b.dataset.puzzle, 10) === i);
+        b.classList.toggle("active", parseInt(b.dataset.puzzle, 10) === puzzle.id);
       });
     });
     li.appendChild(btn);
@@ -1147,16 +1691,41 @@ document.querySelectorAll(".filter-btn").forEach((btn) => {
   });
 });
 
-function loadPuzzle(index) {
-  const puzzle = PUZZLES.find((p) => p.id === index) || PUZZLES[0];
+document.querySelectorAll(".puzzle-mode-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".puzzle-mode-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    puzzleMode = btn.dataset.pmode;
+    const isRated = puzzleMode === "rated";
+    document.getElementById("classic-puzzle-filters").classList.toggle("hidden", isRated);
+    document.getElementById("puzzle-list").classList.toggle("hidden", isRated);
+    document.getElementById("rated-next-btn").classList.toggle("hidden", !isRated);
+    document.getElementById("puzzle-sidebar-desc").textContent = isRated
+      ? "Random puzzles matched to your rating. Gain points for correct answers."
+      : "Curated puzzles by difficulty.";
+    if (isRated) loadRatedPuzzle();
+    else loadPuzzle(currentPuzzle);
+  });
+});
+
+document.getElementById("rated-next-btn").addEventListener("click", loadRatedPuzzle);
+
+function displayPuzzle(puzzle) {
+  activePuzzle = puzzle;
   const size = puzzle.size || 9;
 
-  document.getElementById("puzzle-difficulty").textContent = puzzle.difficulty;
+  let badge = puzzle.difficulty;
+  if (puzzle.generated && puzzle.puzzleRating) {
+    badge = `Rated ~${puzzle.puzzleRating}`;
+  }
+  document.getElementById("puzzle-difficulty").textContent = badge;
   document.getElementById("puzzle-title").textContent = puzzle.title;
   document.getElementById("puzzle-desc").textContent = puzzle.desc;
 
   const feedback = document.getElementById("puzzle-feedback");
-  feedback.textContent = "Find the correct move.";
+  feedback.textContent = puzzle.generated
+    ? "Solve to gain rating points."
+    : "Find the correct move.";
   feedback.className = "puzzle-feedback";
 
   const el = document.getElementById("puzzle-board");
@@ -1167,38 +1736,71 @@ function loadPuzzle(index) {
   }
 
   puzzleBoard.readOnly = false;
-  puzzleBoard.allowedColor = puzzle.player;
+  puzzleBoard.allowedColor = puzzle.player || BLACK;
   puzzleBoard.reset();
-  puzzleBoard.setPosition(puzzle.stones, puzzle.player);
-  puzzleBoard.currentPlayer = puzzle.player;
-  puzzleBoard._activePuzzle = index;
+  puzzleBoard.setPosition(puzzle.stones, puzzle.player || BLACK);
+  puzzleBoard.currentPlayer = puzzle.player || BLACK;
+  puzzleBoard._activePuzzle = puzzle;
   el.className = `go-board size-${size}`;
 }
 
+function loadPuzzle(index) {
+  const puzzle = PUZZLES.find((p) => p.id === index) || PUZZLES[0];
+  currentPuzzle = puzzle.id;
+  puzzleMode = "classic";
+  displayPuzzle(puzzle);
+}
+
+function loadRatedPuzzle() {
+  const puzzle = generateRatedPuzzle(puzzleRating);
+  if (!puzzle) {
+    document.getElementById("puzzle-feedback").textContent =
+      "Could not generate a puzzle — try again.";
+    return;
+  }
+  puzzleMode = "rated";
+  displayPuzzle(puzzle);
+}
+
 function checkPuzzleMove(move) {
-  const puzzle = PUZZLES.find((p) => p.id === puzzleBoard._activePuzzle);
+  const puzzle = puzzleBoard._activePuzzle;
   const feedback = document.getElementById("puzzle-feedback");
   const correct =
     move.row === puzzle.solution.row && move.col === puzzle.solution.col;
 
   if (correct) {
-    feedback.textContent = "Correct! Well played.";
+    if (puzzle.generated) {
+      const delta = adjustRating(puzzle, true);
+      feedback.textContent = `Correct! Rating +${delta}. Loading next…`;
+      setTimeout(() => loadRatedPuzzle(), 1400);
+    } else {
+      feedback.textContent = "Correct! Well played.";
+    }
     feedback.className = "puzzle-feedback success";
     puzzleBoard.readOnly = true;
   } else {
-    feedback.textContent = "Not quite — try again.";
+    if (puzzle.generated) adjustRating(puzzle, false);
+    feedback.textContent = puzzle.generated
+      ? "Wrong — rating decreased. Try the next puzzle."
+      : "Not quite — try again.";
     feedback.className = "puzzle-feedback error";
-    setTimeout(() => loadPuzzle(puzzleBoard._activePuzzle), 600);
+    setTimeout(() => {
+      if (puzzle.generated) loadRatedPuzzle();
+      else displayPuzzle(puzzle);
+    }, puzzle.generated ? 1200 : 600);
   }
 }
 
 document.getElementById("puzzle-hint").addEventListener("click", () => {
-  const puzzle = PUZZLES.find((p) => p.id === currentPuzzle);
-  document.getElementById("puzzle-feedback").textContent = `Hint: ${puzzle.hint}`;
+  const puzzle = activePuzzle || PUZZLES.find((p) => p.id === currentPuzzle);
+  if (puzzle) {
+    document.getElementById("puzzle-feedback").textContent = `Hint: ${puzzle.hint}`;
+  }
 });
 
 document.getElementById("puzzle-reset").addEventListener("click", () => {
-  loadPuzzle(currentPuzzle);
+  if (puzzleMode === "rated") loadRatedPuzzle();
+  else loadPuzzle(currentPuzzle);
 });
 
 /* ===== Analysis ===== */
@@ -1394,8 +1996,14 @@ function initHeroBoard() {
 }
 
 /* ===== Init ===== */
+const puzzleFailures = validateAllPuzzles();
+if (puzzleFailures.length) {
+  console.error("Fix these puzzles before shipping:", puzzleFailures);
+}
+
 buildLessonList();
 buildPuzzleList();
+updateRatingDisplay();
 initPlayBoard();
 initHeroBoard();
 loadLesson(0);

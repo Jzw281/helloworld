@@ -112,6 +112,10 @@ body {
   display: block;
 }
 
+.hidden {
+  display: none !important;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
@@ -386,13 +390,28 @@ body {
   z-index: 2;
 }
 
-.intersection:hover:not(.occupied)::after {
-  content: "";
-  width: 55%;
-  height: 55%;
+.intersection .hover-stone {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 88%;
+  height: 88%;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.15);
+  transform: translate(-50%, -50%) scale(0.85);
+  background: rgba(0, 0, 0, 0.22);
   pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s;
+  z-index: 1;
+}
+
+.intersection:hover:not(.occupied) .hover-stone {
+  opacity: 1;
+}
+
+.intersection.preview-white .hover-stone {
+  background: radial-gradient(circle at 35% 35%, rgba(255,255,255,0.9), rgba(200,200,200,0.75));
+  border: 1px solid rgba(180, 180, 180, 0.6);
 }
 
 .intersection.occupied {
@@ -668,11 +687,85 @@ body {
   margin-bottom: 1rem;
 }
 
+.rating-card {
+  background: linear-gradient(135deg, var(--bg-elevated), var(--bg-card));
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin-bottom: 1.25rem;
+  text-align: center;
+}
+
+.rating-card .rating-value {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--gold);
+  line-height: 1;
+}
+
+.rating-card .rating-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 0.25rem;
+}
+
+.rating-card .rating-change {
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+  min-height: 1.2em;
+}
+
+.rating-card .rating-change.up {
+  color: var(--accent);
+}
+
+.rating-card .rating-change.down {
+  color: #f85149;
+}
+
+.puzzle-mode-tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+}
+
+.puzzle-mode-tabs button {
+  flex: 1;
+  padding: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.puzzle-mode-tabs button.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .puzzle-filters {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
   margin-bottom: 1rem;
+}
+
+.puzzle-rating-badge {
+  display: inline-block;
+  background: var(--gold);
+  color: #0d1117;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  margin-left: 0.5rem;
+  vertical-align: middle;
 }
 
 .puzzle-filters .filter-btn {
