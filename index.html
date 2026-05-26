@@ -14,6 +14,7 @@
       <button class="nav-link" data-view="learn">Learn</button>
       <button class="nav-link" data-view="play">Play</button>
       <button class="nav-link" data-view="puzzles">Puzzles</button>
+      <button class="nav-link" data-view="analysis">Analysis</button>
     </nav>
     <button class="nav-cta" data-view="learn">Start Learning</button>
   </header>
@@ -27,16 +28,16 @@
           <h1>Learn Go.<br>Master the board.</h1>
           <p class="hero-desc">
             Go is one of the oldest board games in the world. Two players compete to surround
-            territory on a grid — simple rules, endless depth. Start from zero and play your first game.
+            territory on a grid — simple rules, endless depth. Play bots, solve puzzles, and review your games.
           </p>
           <div class="hero-actions">
             <button class="btn btn-primary" data-view="learn">Start Free Lessons</button>
-            <button class="btn btn-secondary" data-view="play">Play on the Board</button>
+            <button class="btn btn-secondary" data-view="play">Play vs Bot</button>
           </div>
           <div class="hero-stats">
-            <div><strong>4,000+</strong><span>years of history</span></div>
-            <div><strong>6</strong><span>guided lessons</span></div>
-            <div><strong>3</strong><span>practice puzzles</span></div>
+            <div><strong>3</strong><span>board sizes</span></div>
+            <div><strong>12+</strong><span>puzzles</span></div>
+            <div><strong>∞</strong><span>game reviews</span></div>
           </div>
         </div>
         <div class="hero-board-wrap">
@@ -52,16 +53,16 @@
           <button class="link-btn" data-view="learn">Browse lessons →</button>
         </article>
         <article class="feature-card">
-          <div class="feature-icon">⚫</div>
-          <h3>Play on a real board</h3>
-          <p>Place stones on a 9×9 board with full capture logic — just like a real game.</p>
-          <button class="link-btn" data-view="play">Open board →</button>
+          <div class="feature-icon">🤖</div>
+          <h3>Practice vs bot</h3>
+          <p>Play on 9×9, 13×13, or full 19×19 boards against an AI opponent at three difficulty levels.</p>
+          <button class="link-btn" data-view="play">Play now →</button>
         </article>
         <article class="feature-card">
-          <div class="feature-icon">🧩</div>
-          <h3>Train with puzzles</h3>
-          <p>Solve tsumego problems to sharpen your reading and tactical vision.</p>
-          <button class="link-btn" data-view="puzzles">Try puzzles →</button>
+          <div class="feature-icon">🔍</div>
+          <h3>Game analysis</h3>
+          <p>Every game is saved automatically. Step through moves to review your best and worst plays.</p>
+          <button class="link-btn" data-view="analysis">Review games →</button>
         </article>
       </div>
     </section>
@@ -80,7 +81,7 @@
             <h2 id="lesson-title">Welcome to Go</h2>
           </div>
           <div class="lesson-body">
-            <div id="lesson-board" class="go-board lesson-board" aria-label="Lesson board"></div>
+            <div id="lesson-board" class="go-board lesson-board size-9" aria-label="Lesson board"></div>
             <div class="lesson-text-panel">
               <p id="lesson-text" class="lesson-text"></p>
               <div class="lesson-step-nav">
@@ -98,31 +99,69 @@
     <section id="view-play" class="view">
       <div class="play-layout">
         <div class="board-panel">
-          <div id="play-board" class="go-board" aria-label="9 by 9 Go board"></div>
+          <div id="play-board" class="go-board size-9" aria-label="Go board"></div>
         </div>
         <aside class="play-sidebar">
           <h2>Play Go</h2>
-          <p>Click an intersection to place a stone. Black plays first.</p>
+
+          <div class="control-group">
+            <label class="control-label">Board size</label>
+            <div class="size-tabs" id="board-size-tabs">
+              <button class="size-tab active" data-size="9">9×9</button>
+              <button class="size-tab" data-size="13">13×13</button>
+              <button class="size-tab" data-size="19">19×19</button>
+            </div>
+            <p class="control-hint">Beginner → Standard tournament size</p>
+          </div>
+
+          <div class="control-group">
+            <label class="control-label">Opponent</label>
+            <div class="mode-tabs">
+              <button class="mode-tab active" data-mode="bot">vs Bot</button>
+              <button class="mode-tab" data-mode="local">Local 2P</button>
+            </div>
+          </div>
+
+          <div id="bot-settings" class="control-group">
+            <label class="control-label">Bot difficulty</label>
+            <select id="bot-difficulty" class="select-input">
+              <option value="easy">Easy</option>
+              <option value="medium" selected>Medium</option>
+              <option value="hard">Hard</option>
+            </select>
+            <label class="control-label" style="margin-top:0.75rem">Your color</label>
+            <div class="color-tabs">
+              <button class="color-tab active" data-color="1">Black</button>
+              <button class="color-tab" data-color="2">White</button>
+            </div>
+          </div>
+
           <div class="turn-indicator">
             <span id="current-player-stone" class="stone-preview black"></span>
             <span id="current-player-label">Black to play</span>
           </div>
+
           <div class="play-info">
             <div class="info-row"><span>Captures (Black)</span><strong id="captures-black">0</strong></div>
             <div class="info-row"><span>Captures (White)</span><strong id="captures-white">0</strong></div>
             <div class="info-row"><span>Move number</span><strong id="move-count">0</strong></div>
+            <div class="info-row"><span>Board</span><strong id="board-size-label">9×9</strong></div>
           </div>
+
           <div class="play-actions">
             <button id="pass-btn" class="btn btn-ghost">Pass</button>
             <button id="reset-btn" class="btn btn-secondary">New Game</button>
           </div>
+
+          <p id="game-status" class="game-status"></p>
+
           <div class="rules-reminder">
             <h4>Quick rules</h4>
             <ul>
               <li>Stones connect along the lines (not diagonally).</li>
-              <li>Remove groups with no liberties (empty adjacent points).</li>
+              <li>Remove groups with no liberties.</li>
               <li>Suicide moves are not allowed.</li>
-              <li>Pass twice to end — most territory wins.</li>
+              <li>Pass twice to end — games are saved for analysis.</li>
             </ul>
           </div>
         </aside>
@@ -135,6 +174,12 @@
         <aside class="puzzle-sidebar">
           <h2>Puzzles</h2>
           <p class="sidebar-desc">Find the right move. Black plays first unless noted.</p>
+          <div class="puzzle-filters">
+            <button class="filter-btn active" data-filter="all">All</button>
+            <button class="filter-btn" data-filter="Beginner">Beginner</button>
+            <button class="filter-btn" data-filter="Intermediate">Intermediate</button>
+            <button class="filter-btn" data-filter="Advanced">Advanced</button>
+          </div>
           <ul id="puzzle-list" class="lesson-list"></ul>
         </aside>
         <div class="puzzle-content">
@@ -144,7 +189,7 @@
           </div>
           <p id="puzzle-desc" class="puzzle-desc"></p>
           <div class="puzzle-body">
-            <div id="puzzle-board" class="go-board" aria-label="Puzzle board"></div>
+            <div id="puzzle-board" class="go-board size-9" aria-label="Puzzle board"></div>
             <div class="puzzle-feedback-panel">
               <p id="puzzle-feedback" class="puzzle-feedback">Find the correct move.</p>
               <button id="puzzle-hint" class="btn btn-ghost">Show hint</button>
@@ -154,11 +199,63 @@
         </div>
       </div>
     </section>
+
+    <!-- ANALYSIS -->
+    <section id="view-analysis" class="view">
+      <div class="analysis-layout">
+        <aside class="analysis-sidebar">
+          <h2>Game Review</h2>
+          <p class="sidebar-desc">Replay saved games move by move.</p>
+          <button id="clear-games-btn" class="btn btn-ghost btn-sm">Clear all games</button>
+          <ul id="game-list" class="game-list"></ul>
+          <p id="no-games-msg" class="no-games-msg">No saved games yet. Play a game and pass twice to finish — it will appear here.</p>
+        </aside>
+        <div class="analysis-content">
+          <div id="analysis-empty" class="analysis-empty">
+            <p>Select a game from the list to review your moves.</p>
+            <button class="btn btn-primary" data-view="play">Play a game</button>
+          </div>
+          <div id="analysis-panel" class="analysis-panel hidden">
+            <div class="analysis-header">
+              <div>
+                <span id="analysis-badge" class="lesson-badge">9×9</span>
+                <h2 id="analysis-title">Game review</h2>
+                <p id="analysis-meta" class="analysis-meta"></p>
+              </div>
+            </div>
+            <div class="analysis-body">
+              <div id="analysis-board" class="go-board size-9" aria-label="Analysis board"></div>
+              <div class="analysis-controls-panel">
+                <div class="analysis-move-info">
+                  <span id="analysis-move-label">Move 0</span>
+                  <p id="analysis-move-desc">Starting position</p>
+                </div>
+                <div class="analysis-nav">
+                  <button id="analysis-first" class="btn btn-ghost" title="First">⏮</button>
+                  <button id="analysis-prev" class="btn btn-ghost" title="Previous">◀</button>
+                  <input type="range" id="analysis-slider" min="0" max="0" value="0">
+                  <button id="analysis-next" class="btn btn-ghost" title="Next">▶</button>
+                  <button id="analysis-last" class="btn btn-ghost" title="Last">⏭</button>
+                </div>
+                <div class="analysis-stats">
+                  <div class="info-row"><span>Captures (Black)</span><strong id="analysis-cap-black">0</strong></div>
+                  <div class="info-row"><span>Captures (White)</span><strong id="analysis-cap-white">0</strong></div>
+                </div>
+                <div class="move-list-wrap">
+                  <h4>Move list</h4>
+                  <ol id="analysis-move-list" class="move-list"></ol>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <footer class="site-footer">
     <p>GoDojo — Learn Go with HTML, CSS &amp; JavaScript</p>
-    <p class="footer-note">Board size: 9×9 (beginner standard)</p>
+    <p class="footer-note">Board sizes: 9×9 · 13×13 · 19×19</p>
   </footer>
 
   <script src="script.js"></script>

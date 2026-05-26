@@ -1,8 +1,12 @@
-/* ===== Go Board Engine ===== */
+/* ===== Constants ===== */
 const EMPTY = 0;
 const BLACK = 1;
 const WHITE = 2;
+const BOARD_SIZES = [9, 13, 19];
+const GAMES_KEY = "goDojoGames";
+const COLOR_NAMES = { [BLACK]: "Black", [WHITE]: "White" };
 
+/* ===== Go Board Engine ===== */
 class GoBoard {
   constructor(container, size = 9, options = {}) {
     this.container = container;
@@ -16,19 +20,25 @@ class GoBoard {
     this.onMove = options.onMove || null;
     this.readOnly = options.readOnly || false;
     this.allowedColor = options.allowedColor || null;
+    this.frozen = false;
     this.render();
   }
 
   createEmptyGrid() {
-    return Array.from({ length: this.size }, () =>
-      Array(this.size).fill(EMPTY)
-    );
+    return Array.from({ length: this.size }, () => Array(this.size).fill(EMPTY));
+  }
+
+  setSizeClass() {
+    BOARD_SIZES.forEach((s) => this.container.classList.remove(`size-${s}`));
+    this.container.classList.add(`size-${this.size}`);
   }
 
   render() {
     this.container.innerHTML = "";
     this.container.classList.add("go-board");
+    this.setSizeClass();
     if (this.options.mini) this.container.classList.add("mini");
+    this.container.classList.toggle("readonly", this.readOnly);
 
     const grid = document.createElement("div");
     grid.className = "board-grid";
@@ -44,9 +54,6 @@ class GoBoard {
       for (let c = 0; c < this.size; c++) {
         const cell = document.createElement("div");
         cell.className = "intersection";
-        cell.dataset.row = r;
-        cell.dataset.col = c;
-
         const stone = this.grid[r][c];
         if (stone !== EMPTY) {
           cell.classList.add("occupied");
@@ -57,11 +64,9 @@ class GoBoard {
           }
           cell.appendChild(stoneEl);
         }
-
-        if (!this.readOnly) {
+        if (!this.readOnly && !this.frozen) {
           cell.addEventListener("click", () => this.handleClick(r, c));
         }
-
         grid.appendChild(cell);
       }
     }
@@ -77,7 +82,6 @@ class GoBoard {
       h.className = "board-line-h";
       h.style.top = pct(i);
       container.appendChild(h);
-
       const v = document.createElement("div");
       v.className = "board-line-v";
       v.style.left = pct(i);
@@ -86,9 +90,8 @@ class GoBoard {
   }
 
   drawStarPoints(container) {
-    const points = this.getStarPoints();
     const pct = (i) => `${(i / (this.size - 1)) * 100}%`;
-    points.forEach(([r, c]) => {
+    this.getStarPoints().forEach(([r, c]) => {
       const star = document.createElement("div");
       star.className = "star-point";
       star.style.top = pct(r);
@@ -106,22 +109,73 @@ class GoBoard {
     return [];
   }
 
-  handleClick(row, col) {
-    if (this.readOnly) return;
-    if (this.grid[row][col] !== EMPTY) return;
-    if (this.allowedColor && this.currentPlayer !== this.allowedColor) return;
+  resize(newSize) {
+    this.size = newSize;
+    this.reset();
+    this.setSizeClass();
+  }
 
-    const result = this.tryPlay(row, col, this.currentPlayer);
-    if (!result.ok) return;
+  clone() {
+    const el = document.createElement("div");
+    const board = new GoBoard(el, this.size, { readOnly: true });
+    board.grid = this.grid.map((row) => [...row]);
+    board.currentPlayer = this.currentPlayer;
+    board.captures = { ...this.captures };
+    board.moveCount = this.moveCount;
+    board.lastMove = this.lastMove ? [...this.lastMove] : null;
+    return board;
+  }
+
+  handleClick(row, col) {
+    if (this.readOnly || this.frozen) return;
+    if (this.allowedColor && this.currentPlayer !== this.allowedColor) return;
+    const move = this.playAt(row, col);
+    if (move && this.onMove) this.onMove(move);
+  }
+
+  playAt(row, col) {
+    if (this.grid[row][col] !== EMPTY) return null;
+    const color = this.currentPlayer;
+    const result = this.tryPlay(row, col, color);
+    if (!result.ok) return null;
 
     this.moveCount++;
     this.lastMove = [row, col];
-    this.currentPlayer = this.currentPlayer === BLACK ? WHITE : BLACK;
+    this.currentPlayer = color === BLACK ? WHITE : BLACK;
     this.render();
 
-    if (this.onMove) {
-      this.onMove({ row, col, color: result.color, captures: result.captures });
-    }
+    return {
+      row,
+      col,
+      color,
+      pass: false,
+      captures: result.captures,
+      capturesTotal: { ...this.captures },
+    };
+  }
+
+  playAtForced(row, col, color) {
+    const result = this.tryPlay(row, col, color);
+    if (!result.ok) return false;
+    this.moveCount++;
+    this.lastMove = [row, col];
+    this.currentPlayer = color === BLACK ? WHITE : BLACK;
+    return true;
+  }
+
+  pass() {
+    const color = this.currentPlayer;
+    this.lastMove = null;
+    this.currentPlayer = color === BLACK ? WHITE : BLACK;
+    this.render();
+    return {
+      row: -1,
+      col: -1,
+      color,
+      pass: true,
+      captures: 0,
+      capturesTotal: { ...this.captures },
+    };
   }
 
   tryPlay(row, col, color) {
@@ -152,8 +206,7 @@ class GoBoard {
   }
 
   neighbors(row, col) {
-    const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
-    return dirs
+    return [[0, 1], [0, -1], [1, 0], [-1, 0]]
       .map(([dr, dc]) => [row + dr, col + dc])
       .filter(([r, c]) => r >= 0 && r < this.size && c >= 0 && c < this.size);
   }
@@ -164,7 +217,6 @@ class GoBoard {
     const group = [];
     const visited = new Set();
     const stack = [[row, col]];
-
     while (stack.length) {
       const [r, c] = stack.pop();
       const key = `${r},${c}`;
@@ -192,8 +244,53 @@ class GoBoard {
     for (const [r, c] of group) this.grid[r][c] = EMPTY;
   }
 
+  hasStones() {
+    return this.grid.some((row) => row.some((cell) => cell !== EMPTY));
+  }
+
+  getLegalMoves(color) {
+    const moves = [];
+    for (let r = 0; r < this.size; r++) {
+      for (let c = 0; c < this.size; c++) {
+        if (this.grid[r][c] !== EMPTY) continue;
+        const trial = this.clone();
+        trial.currentPlayer = color;
+        if (trial.tryPlay(r, c, color).ok) moves.push([r, c]);
+      }
+    }
+    return moves;
+  }
+
+  getCandidateMoves(color) {
+    const all = this.getLegalMoves(color);
+    if (!this.hasStones()) {
+      const center = Math.floor(this.size / 2);
+      const stars = this.getStarPoints();
+      const preferred = all.filter(([r, c]) => {
+        if (stars.some(([sr, sc]) => sr === r && sc === c)) return true;
+        return Math.abs(r - center) <= 2 && Math.abs(c - center) <= 2;
+      });
+      return preferred.length ? preferred : all;
+    }
+
+    const near = all.filter(([r, c]) => {
+      for (let rr = 0; rr < this.size; rr++) {
+        for (let cc = 0; cc < this.size; cc++) {
+          if (this.grid[rr][cc] !== EMPTY) {
+            if (Math.abs(rr - r) + Math.abs(cc - c) <= 2) return true;
+          }
+        }
+      }
+      return false;
+    });
+
+    return near.length ? near : all;
+  }
+
   setPosition(stones, nextPlayer = BLACK) {
     this.grid = this.createEmptyGrid();
+    this.captures = { [BLACK]: 0, [WHITE]: 0 };
+    this.moveCount = 0;
     this.currentPlayer = nextPlayer;
     this.lastMove = null;
     for (const { row, col, color } of stones) {
@@ -208,8 +305,114 @@ class GoBoard {
     this.captures = { [BLACK]: 0, [WHITE]: 0 };
     this.moveCount = 0;
     this.lastMove = null;
+    this.frozen = false;
     this.render();
   }
+}
+
+/* ===== Go Bot ===== */
+class GoBot {
+  constructor(difficulty = "medium") {
+    this.difficulty = difficulty;
+  }
+
+  chooseMove(board) {
+    const color = board.currentPlayer;
+    const moves =
+      board.size === 19 && board.moveCount < board.size * 2
+        ? board.getCandidateMoves(color)
+        : board.getLegalMoves(color);
+
+    if (!moves.length) return null;
+
+    if (this.difficulty === "easy" && Math.random() < 0.4) {
+      return moves[Math.floor(Math.random() * moves.length)];
+    }
+
+    let bestScore = -Infinity;
+    let bestMoves = [];
+
+    for (const [row, col] of moves) {
+      const score = this.scoreMove(board, row, col, color);
+      if (score > bestScore) {
+        bestScore = score;
+        bestMoves = [[row, col]];
+      } else if (score === bestScore) {
+        bestMoves.push([row, col]);
+      }
+    }
+
+    return bestMoves[Math.floor(Math.random() * bestMoves.length)];
+  }
+
+  scoreMove(board, row, col, color) {
+    const trial = board.clone();
+    trial.currentPlayer = color;
+    const result = trial.tryPlay(row, col, color);
+    if (!result.ok) return -9999;
+
+    let score = result.captures * 120;
+
+    const opponent = color === BLACK ? WHITE : BLACK;
+    for (const [nr, nc] of trial.neighbors(row, col)) {
+      if (trial.grid[nr][nc] === opponent) {
+        const g = trial.getGroup(nr, nc);
+        const libs = trial.countLiberties(g);
+        if (libs === 1) score += 60;
+        if (libs === 0) score += 40;
+      }
+    }
+
+    const ownGroup = trial.getGroup(row, col);
+    const origBoard = board.clone();
+    origBoard.currentPlayer = color;
+    const origTrial = origBoard.clone();
+    origTrial.currentPlayer = color;
+    if (board.grid[row][col] === EMPTY) {
+      const before = board.clone();
+      before.currentPlayer = color;
+      const bt = before.clone();
+      bt.currentPlayer = color;
+      // Check if we were in atari before
+    }
+
+    for (const [r, c] of ownGroup) {
+      for (const [nr, nc] of trial.neighbors(r, c)) {
+        if (trial.grid[nr][nc] === color && (nr !== row || nc !== col)) score += 8;
+      }
+    }
+
+    const center = (board.size - 1) / 2;
+    const dist = Math.abs(row - center) + Math.abs(col - center);
+    if (board.moveCount < board.size) score += Math.max(0, 12 - dist);
+
+    if (this.difficulty === "hard") {
+      score += result.captures * 30;
+      score += trial.countLiberties(ownGroup) * 5;
+    }
+
+    score += Math.random() * 4;
+    return score;
+  }
+}
+
+/* ===== Game Storage ===== */
+function loadGames() {
+  try {
+    return JSON.parse(localStorage.getItem(GAMES_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveGames(games) {
+  localStorage.setItem(GAMES_KEY, JSON.stringify(games.slice(0, 50)));
+}
+
+function saveGameRecord(game) {
+  const games = loadGames();
+  games.unshift(game);
+  saveGames(games);
 }
 
 /* ===== Lesson Content ===== */
@@ -240,7 +443,7 @@ const LESSONS = [
         stones: [],
       },
       {
-        text: "Black always plays first. One player takes black stones, the other white. On this site we use a 9×9 board — perfect for learning the fundamentals.",
+        text: "Black always plays first. One player takes black stones, the other white. GoDojo offers 9×9, 13×13, and full 19×19 boards.",
         stones: [{ row: 4, col: 4, color: BLACK }],
       },
     ],
@@ -250,7 +453,7 @@ const LESSONS = [
     title: "Connecting Stones",
     steps: [
       {
-        text: "Stones of the same color that touch horizontally or vertically (not diagonally) form a connected group. They share the same fate — if one is captured, all are captured.",
+        text: "Stones of the same color that touch horizontally or vertically form a connected group. They share the same fate — if one is captured, all are captured.",
         stones: [
           { row: 3, col: 4, color: BLACK },
           { row: 4, col: 4, color: BLACK },
@@ -273,7 +476,7 @@ const LESSONS = [
     title: "Liberties & Capturing",
     steps: [
       {
-        text: "A liberty is an empty point directly adjacent to a stone or group (up, down, left, or right). This lone white stone has only one liberty — the point marked by the empty intersection next to it.",
+        text: "A liberty is an empty point directly adjacent to a stone or group. This lone white stone has only one liberty left.",
         stones: [
           { row: 4, col: 4, color: WHITE },
           { row: 3, col: 4, color: BLACK },
@@ -282,7 +485,7 @@ const LESSONS = [
         ],
       },
       {
-        text: "When black plays at the last liberty, the white stone is captured and removed from the board. A group with zero liberties is always removed.",
+        text: "When black plays at the last liberty, the white stone is captured and removed from the board.",
         stones: [
           { row: 4, col: 4, color: WHITE },
           { row: 3, col: 4, color: BLACK },
@@ -298,7 +501,7 @@ const LESSONS = [
     title: "Eyes & Life",
     steps: [
       {
-        text: "An eye is an empty point completely surrounded by stones of one color. Groups need two separate eyes to be alive (uncapturable). A group with only one eye can eventually be captured.",
+        text: "An eye is an empty point completely surrounded by one color. Groups need two separate eyes to live. A group with only one eye can eventually be captured.",
         stones: [
           { row: 3, col: 3, color: BLACK },
           { row: 3, col: 4, color: BLACK },
@@ -311,7 +514,7 @@ const LESSONS = [
         ],
       },
       {
-        text: "Two eyes means the opponent can never fill both at once. This black group has two eyes at the center — it is alive and can never be captured.",
+        text: "Two eyes means the opponent can never fill both at once. This black group is alive and can never be captured.",
         stones: [
           { row: 2, col: 3, color: BLACK },
           { row: 2, col: 4, color: BLACK },
@@ -324,7 +527,6 @@ const LESSONS = [
           { row: 5, col: 5, color: BLACK },
           { row: 4, col: 5, color: BLACK },
           { row: 3, col: 5, color: BLACK },
-          { row: 3, col: 4, color: BLACK },
           { row: 4, col: 4, color: BLACK },
         ],
       },
@@ -335,7 +537,7 @@ const LESSONS = [
     title: "Territory & Scoring",
     steps: [
       {
-        text: "The goal of Go is to control more territory than your opponent. Territory is the empty space you surround with your stones. At the end, both players pass and count their points.",
+        text: "The goal is to control more territory than your opponent. Territory is empty space surrounded by your stones. Both players pass to end the game, then count points.",
         stones: [
           { row: 1, col: 1, color: BLACK },
           { row: 1, col: 2, color: BLACK },
@@ -346,7 +548,7 @@ const LESSONS = [
         ],
       },
       {
-        text: "Captured stones also count as points. In area scoring (used here), each empty intersection in your territory plus each prisoner equals one point. Ready to play? Head to the Play tab!",
+        text: "Captured stones count as points too. Play games on GoDojo — they're saved automatically so you can review them in Analysis!",
         stones: [
           { row: 0, col: 0, color: BLACK },
           { row: 0, col: 1, color: BLACK },
@@ -366,6 +568,7 @@ const PUZZLES = [
     id: 0,
     title: "Capture the stone",
     difficulty: "Beginner",
+    size: 9,
     desc: "White has only one liberty left. Where should black play to capture?",
     stones: [
       { row: 4, col: 4, color: WHITE },
@@ -381,7 +584,8 @@ const PUZZLES = [
     id: 1,
     title: "Capture two stones",
     difficulty: "Beginner",
-    desc: "Two white stones are in atari with only one shared liberty. Where does black play to capture both?",
+    size: 9,
+    desc: "Two white stones share one liberty. Capture both in one move.",
     stones: [
       { row: 4, col: 4, color: WHITE },
       { row: 4, col: 5, color: WHITE },
@@ -398,8 +602,9 @@ const PUZZLES = [
   {
     id: 2,
     title: "Cut and capture",
-    difficulty: "Intermediate",
-    desc: "Two white stones are almost surrounded. Find the move that captures both.",
+    difficulty: "Beginner",
+    size: 9,
+    desc: "Two white stones are separated. Play between them to capture both.",
     stones: [
       { row: 4, col: 3, color: WHITE },
       { row: 4, col: 5, color: WHITE },
@@ -414,30 +619,222 @@ const PUZZLES = [
     player: BLACK,
     hint: "Play between the two white stones.",
   },
+  {
+    id: 3,
+    title: "Corner capture",
+    difficulty: "Beginner",
+    size: 9,
+    desc: "The white stone in the corner has one liberty. Black to capture.",
+    stones: [
+      { row: 0, col: 1, color: WHITE },
+      { row: 1, col: 0, color: BLACK },
+      { row: 1, col: 2, color: BLACK },
+      { row: 2, col: 1, color: BLACK },
+    ],
+    solution: { row: 0, col: 0 },
+    player: BLACK,
+    hint: "Corners have fewer escape routes. Fill the last liberty.",
+  },
+  {
+    id: 4,
+    title: "Atari first",
+    difficulty: "Beginner",
+    size: 9,
+    desc: "Put the white group in atari before capturing on the next move — but this puzzle captures immediately!",
+    stones: [
+      { row: 4, col: 4, color: WHITE },
+      { row: 4, col: 5, color: WHITE },
+      { row: 3, col: 4, color: BLACK },
+      { row: 5, col: 5, color: BLACK },
+      { row: 3, col: 5, color: BLACK },
+      { row: 5, col: 3, color: BLACK },
+    ],
+    solution: { row: 4, col: 3 },
+    player: BLACK,
+    hint: "Attack the white group from the open side.",
+  },
+  {
+    id: 5,
+    title: "Ladder breaker? Capture!",
+    difficulty: "Intermediate",
+    size: 9,
+    desc: "A single white stone is almost surrounded. Find the capturing move.",
+    stones: [
+      { row: 3, col: 3, color: WHITE },
+      { row: 2, col: 3, color: BLACK },
+      { row: 4, col: 3, color: BLACK },
+      { row: 3, col: 2, color: BLACK },
+      { row: 3, col: 4, color: BLACK },
+    ],
+    solution: { row: 3, col: 5 },
+    player: BLACK,
+    hint: "Close off the last escape route on the right.",
+  },
+  {
+    id: 6,
+    title: "Cutting stone",
+    difficulty: "Intermediate",
+    size: 9,
+    desc: "White cuts between two black stones. Capture the cutting stone with one move.",
+    stones: [
+      { row: 4, col: 4, color: BLACK },
+      { row: 4, col: 6, color: BLACK },
+      { row: 4, col: 5, color: WHITE },
+      { row: 3, col: 5, color: BLACK },
+      { row: 5, col: 5, color: BLACK },
+      { row: 4, col: 3, color: BLACK },
+    ],
+    solution: { row: 4, col: 6 },
+    player: BLACK,
+    hint: "Fill white's last liberty on the right.",
+  },
+  {
+    id: 7,
+    title: "Block the escape",
+    difficulty: "Intermediate",
+    size: 9,
+    desc: "White is almost surrounded on the upper side. Play the capturing move.",
+    stones: [
+      { row: 2, col: 4, color: WHITE },
+      { row: 1, col: 4, color: BLACK },
+      { row: 3, col: 4, color: BLACK },
+      { row: 2, col: 3, color: BLACK },
+    ],
+    solution: { row: 2, col: 5 },
+    player: BLACK,
+    hint: "Close off the last open point next to the white stone.",
+  },
+  {
+    id: 8,
+    title: "Make two eyes",
+    difficulty: "Intermediate",
+    size: 9,
+    desc: "White threatens to capture the black group. Black plays inside to make two eyes and live.",
+    stones: [
+      { row: 3, col: 3, color: BLACK },
+      { row: 3, col: 4, color: BLACK },
+      { row: 3, col: 5, color: BLACK },
+      { row: 4, col: 3, color: BLACK },
+      { row: 5, col: 3, color: BLACK },
+      { row: 5, col: 4, color: BLACK },
+      { row: 5, col: 5, color: BLACK },
+      { row: 4, col: 5, color: BLACK },
+      { row: 2, col: 3, color: WHITE },
+      { row: 2, col: 4, color: WHITE },
+      { row: 2, col: 5, color: WHITE },
+      { row: 4, col: 2, color: WHITE },
+      { row: 5, col: 2, color: WHITE },
+      { row: 6, col: 3, color: WHITE },
+      { row: 6, col: 4, color: WHITE },
+      { row: 6, col: 5, color: WHITE },
+      { row: 4, col: 6, color: WHITE },
+    ],
+    solution: { row: 4, col: 4 },
+    player: BLACK,
+    hint: "Play inside the group to split the interior into two eyes.",
+  },
+  {
+    id: 9,
+    title: "Outside atari",
+    difficulty: "Intermediate",
+    size: 9,
+    desc: "Capture the three white stones on the edge.",
+    stones: [
+      { row: 0, col: 3, color: WHITE },
+      { row: 0, col: 4, color: WHITE },
+      { row: 0, col: 5, color: WHITE },
+      { row: 1, col: 3, color: BLACK },
+      { row: 1, col: 5, color: BLACK },
+      { row: 2, col: 3, color: BLACK },
+      { row: 2, col: 4, color: BLACK },
+      { row: 2, col: 5, color: BLACK },
+    ],
+    solution: { row: 0, col: 2 },
+    player: BLACK,
+    hint: "Edge groups have fewer liberties. Attack from the last open side.",
+  },
+  {
+    id: 10,
+    title: "13×13 corner",
+    difficulty: "Advanced",
+    size: 13,
+    desc: "On a larger board — capture white in the corner.",
+    stones: [
+      { row: 0, col: 1, color: WHITE },
+      { row: 1, col: 0, color: BLACK },
+      { row: 1, col: 1, color: BLACK },
+      { row: 0, col: 0, color: BLACK },
+    ],
+    solution: { row: 0, col: 2 },
+    player: BLACK,
+    hint: "Fill white's last liberty along the top edge.",
+  },
+  {
+    id: 11,
+    title: "Surround the group",
+    difficulty: "Advanced",
+    size: 9,
+    desc: "The white group has one liberty left in the center. Black to capture five stones.",
+    stones: [
+      { row: 3, col: 3, color: WHITE },
+      { row: 3, col: 4, color: WHITE },
+      { row: 3, col: 5, color: WHITE },
+      { row: 4, col: 3, color: WHITE },
+      { row: 4, col: 5, color: WHITE },
+      { row: 2, col: 3, color: BLACK },
+      { row: 2, col: 4, color: BLACK },
+      { row: 2, col: 5, color: BLACK },
+      { row: 3, col: 2, color: BLACK },
+      { row: 4, col: 2, color: BLACK },
+      { row: 5, col: 3, color: BLACK },
+      { row: 5, col: 4, color: BLACK },
+      { row: 5, col: 5, color: BLACK },
+      { row: 4, col: 6, color: BLACK },
+      { row: 3, col: 6, color: BLACK },
+    ],
+    solution: { row: 4, col: 4 },
+    player: BLACK,
+    hint: "Play inside the ring to remove the last liberty.",
+  },
 ];
 
 /* ===== App State ===== */
 let currentLesson = 0;
 let currentStep = 0;
 let currentPuzzle = 0;
+let puzzleFilter = "all";
 let lessonProgress = JSON.parse(localStorage.getItem("goLessonProgress") || "{}");
 
 let lessonBoard;
 let playBoard;
 let puzzleBoard;
 let heroBoard;
+let analysisBoard;
+
+let playSize = 9;
+let playMode = "bot";
+let botDifficulty = "medium";
+let humanColor = BLACK;
+let bot;
+let botThinking = false;
+let consecutivePasses = 0;
+let gameEnded = false;
+let currentGame = null;
+
+let selectedGame = null;
+let analysisMoveIndex = 0;
 
 /* ===== Navigation ===== */
 function showView(viewId) {
   document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
   document.getElementById(`view-${viewId}`).classList.add("active");
-
   document.querySelectorAll(".nav-link").forEach((link) => {
     link.classList.toggle("active", link.dataset.view === viewId);
   });
 
   if (viewId === "learn") loadLesson(currentLesson);
   if (viewId === "puzzles") loadPuzzle(currentPuzzle);
+  if (viewId === "analysis") refreshGameList();
 }
 
 document.querySelectorAll("[data-view]").forEach((el) => {
@@ -455,14 +852,12 @@ function buildLessonList() {
     const li = document.createElement("li");
     const btn = document.createElement("button");
     btn.textContent = lesson.title;
-    btn.dataset.lesson = i;
     if (lessonProgress[i]) btn.classList.add("completed");
     if (i === currentLesson) btn.classList.add("active");
     btn.addEventListener("click", () => {
       currentLesson = i;
       currentStep = 0;
       loadLesson(i);
-      updateLessonListActive();
     });
     li.appendChild(btn);
     list.appendChild(li);
@@ -479,30 +874,20 @@ function updateLessonListActive() {
 function loadLesson(index) {
   const lesson = LESSONS[index];
   currentStep = Math.min(currentStep, lesson.steps.length - 1);
-
   document.getElementById("lesson-number").textContent = `Lesson ${index + 1}`;
   document.getElementById("lesson-title").textContent = lesson.title;
-
   const step = lesson.steps[currentStep];
   document.getElementById("lesson-text").textContent = step.text;
   document.getElementById("lesson-step-indicator").textContent =
     `Step ${currentStep + 1} of ${lesson.steps.length}`;
-
   document.getElementById("lesson-prev").disabled = currentStep === 0;
   document.getElementById("lesson-next").textContent =
     currentStep === lesson.steps.length - 1 ? "Complete ✓" : "Next →";
 
   if (!lessonBoard) {
-    const el = document.getElementById("lesson-board");
-    lessonBoard = new GoBoard(el, 9, { readOnly: true });
+    lessonBoard = new GoBoard(document.getElementById("lesson-board"), 9, { readOnly: true });
   }
   lessonBoard.setPosition(step.stones);
-  updateLessonListActive();
-}
-
-function markLessonComplete(index) {
-  lessonProgress[index] = true;
-  localStorage.setItem("goLessonProgress", JSON.stringify(lessonProgress));
   updateLessonListActive();
 }
 
@@ -519,7 +904,8 @@ document.getElementById("lesson-next").addEventListener("click", () => {
     currentStep++;
     loadLesson(currentLesson);
   } else {
-    markLessonComplete(currentLesson);
+    lessonProgress[currentLesson] = true;
+    localStorage.setItem("goLessonProgress", JSON.stringify(lessonProgress));
     if (currentLesson < LESSONS.length - 1) {
       currentLesson++;
       currentStep = 0;
@@ -529,51 +915,222 @@ document.getElementById("lesson-next").addEventListener("click", () => {
 });
 
 /* ===== Play Mode ===== */
+function createNewGameRecord() {
+  return {
+    id: Date.now(),
+    date: new Date().toISOString(),
+    size: playSize,
+    mode: playMode,
+    botDifficulty: playMode === "bot" ? botDifficulty : null,
+    humanColor: playMode === "bot" ? humanColor : null,
+    moves: [],
+    finalCaptures: { [BLACK]: 0, [WHITE]: 0 },
+    result: null,
+  };
+}
+
+function startNewGame() {
+  if (currentGame && currentGame.moves.length > 0 && !currentGame.result) {
+    currentGame.result = "Game abandoned";
+    saveGameRecord(currentGame);
+  }
+
+  currentGame = createNewGameRecord();
+  consecutivePasses = 0;
+  gameEnded = false;
+  botThinking = false;
+
+  if (playBoard && playBoard.size !== playSize) {
+    playBoard.resize(playSize);
+  } else if (playBoard) {
+    playBoard.reset();
+  }
+
+  document.getElementById("game-status").textContent = "";
+  document.getElementById("game-status").classList.remove("ended");
+  document.getElementById("board-size-label").textContent = `${playSize}×${playSize}`;
+
+  updatePlayUI();
+
+  if (playMode === "bot" && humanColor === WHITE) {
+    setTimeout(() => botTurn(), 500);
+  }
+}
+
+function recordMove(move) {
+  if (!currentGame || gameEnded) return;
+  currentGame.moves.push({
+    row: move.row,
+    col: move.col,
+    color: move.color,
+    pass: move.pass,
+    captures: move.captures,
+  });
+  currentGame.finalCaptures = { ...move.capturesTotal };
+}
+
+function endGame(message) {
+  if (gameEnded) return;
+  gameEnded = true;
+  playBoard.frozen = true;
+  if (currentGame) {
+    currentGame.result = message;
+    currentGame.finalCaptures = { ...playBoard.captures };
+    saveGameRecord(currentGame);
+  }
+  const status = document.getElementById("game-status");
+  status.textContent = `${message} — saved to Analysis`;
+  status.classList.add("ended");
+}
+
 function updatePlayUI() {
+  if (!playBoard) return;
   const isBlack = playBoard.currentPlayer === BLACK;
-  document.getElementById("current-player-label").textContent =
-    isBlack ? "Black to play" : "White to play";
-  const preview = document.getElementById("current-player-stone");
-  preview.className = `stone-preview ${isBlack ? "black" : "white"}`;
+  const label =
+    playMode === "bot"
+      ? isBlack
+        ? humanColor === BLACK
+          ? "Your turn (Black)"
+          : "Bot thinking…"
+        : humanColor === WHITE
+          ? "Your turn (White)"
+          : "Bot thinking…"
+      : isBlack
+        ? "Black to play"
+        : "White to play";
+
+  document.getElementById("current-player-label").textContent = label;
+  document.getElementById("current-player-stone").className =
+    `stone-preview ${isBlack ? "black" : "white"}`;
   document.getElementById("captures-black").textContent = playBoard.captures[BLACK];
   document.getElementById("captures-white").textContent = playBoard.captures[WHITE];
   document.getElementById("move-count").textContent = playBoard.moveCount;
 }
 
-function initPlayBoard() {
-  const el = document.getElementById("play-board");
-  playBoard = new GoBoard(el, 9, {
-    onMove: () => updatePlayUI(),
-  });
+function onPlayMove(move) {
+  recordMove(move);
+  consecutivePasses = 0;
+  updatePlayUI();
+
+  if (playMode === "bot" && !gameEnded) {
+    const botColor = humanColor === BLACK ? WHITE : BLACK;
+    if (playBoard.currentPlayer === botColor) {
+      setTimeout(() => botTurn(), 450);
+    }
+  }
+}
+
+function botTurn() {
+  if (gameEnded || botThinking || playMode !== "bot") return;
+  const botColor = humanColor === BLACK ? WHITE : BLACK;
+  if (playBoard.currentPlayer !== botColor) return;
+
+  botThinking = true;
+  playBoard.frozen = true;
+  playBoard.render();
+
+  const move = bot.chooseMove(playBoard);
+  if (!move) {
+    const passMove = playBoard.pass();
+    recordMove(passMove);
+    consecutivePasses++;
+    if (consecutivePasses >= 2) endGame("Both players passed");
+    botThinking = false;
+    playBoard.frozen = gameEnded;
+    updatePlayUI();
+    return;
+  }
+
+  const [row, col] = move;
+  const result = playBoard.playAt(row, col);
+  if (result) recordMove(result);
+  botThinking = false;
+  playBoard.frozen = gameEnded;
   updatePlayUI();
 }
 
-document.getElementById("pass-btn").addEventListener("click", () => {
-  playBoard.currentPlayer = playBoard.currentPlayer === BLACK ? WHITE : BLACK;
-  playBoard.lastMove = null;
-  playBoard.render();
-  updatePlayUI();
+function initPlayBoard() {
+  const el = document.getElementById("play-board");
+  playBoard = new GoBoard(el, playSize, { onMove: onPlayMove });
+  bot = new GoBot(botDifficulty);
+  startNewGame();
+}
+
+document.querySelectorAll(".size-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".size-tab").forEach((t) => t.classList.remove("active"));
+    tab.classList.add("active");
+    playSize = parseInt(tab.dataset.size, 10);
+    startNewGame();
+  });
 });
 
-document.getElementById("reset-btn").addEventListener("click", () => {
-  playBoard.reset();
-  updatePlayUI();
+document.querySelectorAll(".mode-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".mode-tab").forEach((t) => t.classList.remove("active"));
+    tab.classList.add("active");
+    playMode = tab.dataset.mode;
+    document.getElementById("bot-settings").style.display =
+      playMode === "bot" ? "block" : "none";
+    startNewGame();
+  });
 });
+
+document.getElementById("bot-difficulty").addEventListener("change", (e) => {
+  botDifficulty = e.target.value;
+  bot = new GoBot(botDifficulty);
+});
+
+document.querySelectorAll(".color-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".color-tab").forEach((t) => t.classList.remove("active"));
+    tab.classList.add("active");
+    humanColor = parseInt(tab.dataset.color, 10);
+    startNewGame();
+  });
+});
+
+document.getElementById("pass-btn").addEventListener("click", () => {
+  if (gameEnded || botThinking) return;
+  if (playMode === "bot" && playBoard.currentPlayer !== humanColor) return;
+
+  const move = playBoard.pass();
+  recordMove(move);
+  consecutivePasses++;
+  updatePlayUI();
+
+  if (consecutivePasses >= 2) {
+    endGame("Both players passed — count territory to score");
+    return;
+  }
+
+  if (playMode === "bot" && playBoard.currentPlayer !== humanColor) {
+    setTimeout(() => botTurn(), 400);
+  }
+});
+
+document.getElementById("reset-btn").addEventListener("click", startNewGame);
 
 /* ===== Puzzles ===== */
 function buildPuzzleList() {
   const list = document.getElementById("puzzle-list");
   list.innerHTML = "";
-  PUZZLES.forEach((puzzle, i) => {
+  const filtered = PUZZLES.filter(
+    (p) => puzzleFilter === "all" || p.difficulty === puzzleFilter
+  );
+
+  filtered.forEach((puzzle) => {
+    const i = puzzle.id;
     const li = document.createElement("li");
     const btn = document.createElement("button");
     btn.textContent = puzzle.title;
+    btn.dataset.puzzle = i;
     if (i === currentPuzzle) btn.classList.add("active");
     btn.addEventListener("click", () => {
       currentPuzzle = i;
       loadPuzzle(i);
-      document.querySelectorAll("#puzzle-list button").forEach((b, j) => {
-        b.classList.toggle("active", j === i);
+      document.querySelectorAll("#puzzle-list button").forEach((b) => {
+        b.classList.toggle("active", parseInt(b.dataset.puzzle, 10) === i);
       });
     });
     li.appendChild(btn);
@@ -581,8 +1138,19 @@ function buildPuzzleList() {
   });
 }
 
+document.querySelectorAll(".filter-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".filter-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    puzzleFilter = btn.dataset.filter;
+    buildPuzzleList();
+  });
+});
+
 function loadPuzzle(index) {
-  const puzzle = PUZZLES[index];
+  const puzzle = PUZZLES.find((p) => p.id === index) || PUZZLES[0];
+  const size = puzzle.size || 9;
+
   document.getElementById("puzzle-difficulty").textContent = puzzle.difficulty;
   document.getElementById("puzzle-title").textContent = puzzle.title;
   document.getElementById("puzzle-desc").textContent = puzzle.desc;
@@ -591,23 +1159,24 @@ function loadPuzzle(index) {
   feedback.textContent = "Find the correct move.";
   feedback.className = "puzzle-feedback";
 
-  if (!puzzleBoard) {
-    const el = document.getElementById("puzzle-board");
-    puzzleBoard = new GoBoard(el, 9, {
-      allowedColor: BLACK,
+  const el = document.getElementById("puzzle-board");
+  if (!puzzleBoard || puzzleBoard.size !== size) {
+    puzzleBoard = new GoBoard(el, size, {
       onMove: (move) => checkPuzzleMove(move),
     });
   }
 
+  puzzleBoard.readOnly = false;
+  puzzleBoard.allowedColor = puzzle.player;
   puzzleBoard.reset();
   puzzleBoard.setPosition(puzzle.stones, puzzle.player);
-  puzzleBoard.allowedColor = puzzle.player;
   puzzleBoard.currentPlayer = puzzle.player;
   puzzleBoard._activePuzzle = index;
+  el.className = `go-board size-${size}`;
 }
 
 function checkPuzzleMove(move) {
-  const puzzle = PUZZLES[puzzleBoard._activePuzzle];
+  const puzzle = PUZZLES.find((p) => p.id === puzzleBoard._activePuzzle);
   const feedback = document.getElementById("puzzle-feedback");
   const correct =
     move.row === puzzle.solution.row && move.col === puzzle.solution.col;
@@ -617,26 +1186,201 @@ function checkPuzzleMove(move) {
     feedback.className = "puzzle-feedback success";
     puzzleBoard.readOnly = true;
   } else {
-    feedback.textContent = "Not quite — try again. Reset to start over.";
+    feedback.textContent = "Not quite — try again.";
     feedback.className = "puzzle-feedback error";
     setTimeout(() => loadPuzzle(puzzleBoard._activePuzzle), 600);
   }
 }
 
 document.getElementById("puzzle-hint").addEventListener("click", () => {
-  const puzzle = PUZZLES[currentPuzzle];
+  const puzzle = PUZZLES.find((p) => p.id === currentPuzzle);
   document.getElementById("puzzle-feedback").textContent = `Hint: ${puzzle.hint}`;
 });
 
 document.getElementById("puzzle-reset").addEventListener("click", () => {
-  puzzleBoard.readOnly = false;
   loadPuzzle(currentPuzzle);
 });
 
-/* ===== Hero decorative board ===== */
+/* ===== Analysis ===== */
+function formatGameDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function refreshGameList() {
+  const games = loadGames();
+  const list = document.getElementById("game-list");
+  const noMsg = document.getElementById("no-games-msg");
+  list.innerHTML = "";
+
+  if (!games.length) {
+    noMsg.classList.remove("hidden");
+    document.getElementById("analysis-empty").classList.remove("hidden");
+    document.getElementById("analysis-panel").classList.add("hidden");
+    return;
+  }
+
+  noMsg.classList.add("hidden");
+
+  games.forEach((game) => {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    const modeLabel =
+      game.mode === "bot"
+        ? `vs Bot (${game.botDifficulty})`
+        : "Local 2P";
+    btn.innerHTML = `<span class="game-date">${formatGameDate(game.date)}</span><span class="game-detail">${game.size}×${game.size} · ${modeLabel} · ${game.moves.length} moves</span>`;
+    if (selectedGame && selectedGame.id === game.id) btn.classList.add("active");
+    btn.addEventListener("click", () => loadAnalysisGame(game));
+    li.appendChild(btn);
+    list.appendChild(li);
+  });
+}
+
+function loadAnalysisGame(game) {
+  selectedGame = game;
+  analysisMoveIndex = 0;
+  refreshGameList();
+
+  document.getElementById("analysis-empty").classList.add("hidden");
+  document.getElementById("analysis-panel").classList.remove("hidden");
+
+  document.getElementById("analysis-badge").textContent = `${game.size}×${game.size}`;
+  document.getElementById("analysis-title").textContent = game.result || "Game review";
+  const modeLabel =
+    game.mode === "bot"
+      ? `You played ${COLOR_NAMES[game.humanColor]} vs ${game.botDifficulty} bot`
+      : "Local two-player game";
+  document.getElementById("analysis-meta").textContent =
+    `${formatGameDate(game.date)} · ${modeLabel} · ${game.moves.length} moves`;
+
+  const el = document.getElementById("analysis-board");
+  if (!analysisBoard || analysisBoard.size !== game.size) {
+    analysisBoard = new GoBoard(el, game.size, { readOnly: true });
+  }
+
+  const slider = document.getElementById("analysis-slider");
+  slider.max = game.moves.length;
+  slider.value = 0;
+
+  buildMoveList(game);
+  showAnalysisMove(0);
+}
+
+function buildMoveList(game) {
+  const ol = document.getElementById("analysis-move-list");
+  ol.innerHTML = "";
+
+  const startLi = document.createElement("li");
+  startLi.textContent = "Start";
+  startLi.dataset.index = 0;
+  startLi.addEventListener("click", () => showAnalysisMove(0));
+  ol.appendChild(startLi);
+
+  game.moves.forEach((move, i) => {
+    const li = document.createElement("li");
+    const n = i + 1;
+    if (move.pass) {
+      li.textContent = `${n}. ${COLOR_NAMES[move.color]} passes`;
+      li.classList.add("pass");
+    } else {
+      const col = String.fromCharCode(65 + move.col);
+      const row = game.size - move.row;
+      li.textContent = `${n}. ${COLOR_NAMES[move.color]} ${col}${row}`;
+    }
+    li.dataset.index = n;
+    li.addEventListener("click", () => showAnalysisMove(n));
+    ol.appendChild(li);
+  });
+}
+
+function showAnalysisMove(index) {
+  if (!selectedGame) return;
+  const game = selectedGame;
+  analysisMoveIndex = index;
+
+  analysisBoard.reset();
+  let capBlack = 0;
+  let capWhite = 0;
+
+  for (let i = 0; i < index; i++) {
+    const m = game.moves[i];
+    if (m.pass) {
+      analysisBoard.pass();
+    } else {
+      analysisBoard.playAtForced(m.row, m.col, m.color);
+      capBlack = analysisBoard.captures[BLACK];
+      capWhite = analysisBoard.captures[WHITE];
+    }
+  }
+
+  analysisBoard.readOnly = true;
+  analysisBoard.render();
+
+  document.getElementById("analysis-slider").value = index;
+  document.getElementById("analysis-cap-black").textContent = capBlack;
+  document.getElementById("analysis-cap-white").textContent = capWhite;
+
+  document.getElementById("analysis-move-label").textContent =
+    index === 0 ? "Move 0" : `Move ${index} of ${game.moves.length}`;
+
+  let desc = "Starting position";
+  if (index > 0) {
+    const m = game.moves[index - 1];
+    if (m.pass) {
+      desc = `${COLOR_NAMES[m.color]} passed`;
+    } else {
+      const col = String.fromCharCode(65 + m.col);
+      const row = game.size - m.row;
+      desc = `${COLOR_NAMES[m.color]} played at ${col}${row}`;
+      if (m.captures > 0) desc += ` — captured ${m.captures} stone(s)`;
+    }
+  }
+  document.getElementById("analysis-move-desc").textContent = desc;
+
+  document.querySelectorAll("#analysis-move-list li").forEach((li) => {
+    li.classList.toggle("active", parseInt(li.dataset.index, 10) === index);
+  });
+
+  document.getElementById("analysis-prev").disabled = index === 0;
+  document.getElementById("analysis-next").disabled = index >= game.moves.length;
+}
+
+document.getElementById("analysis-first").addEventListener("click", () => showAnalysisMove(0));
+document.getElementById("analysis-prev").addEventListener("click", () => {
+  if (analysisMoveIndex > 0) showAnalysisMove(analysisMoveIndex - 1);
+});
+document.getElementById("analysis-next").addEventListener("click", () => {
+  if (selectedGame && analysisMoveIndex < selectedGame.moves.length) {
+    showAnalysisMove(analysisMoveIndex + 1);
+  }
+});
+document.getElementById("analysis-last").addEventListener("click", () => {
+  if (selectedGame) showAnalysisMove(selectedGame.moves.length);
+});
+document.getElementById("analysis-slider").addEventListener("input", (e) => {
+  showAnalysisMove(parseInt(e.target.value, 10));
+});
+
+document.getElementById("clear-games-btn").addEventListener("click", () => {
+  if (confirm("Delete all saved games?")) {
+    saveGames([]);
+    selectedGame = null;
+    refreshGameList();
+  }
+});
+
+/* ===== Hero board ===== */
 function initHeroBoard() {
-  const el = document.getElementById("hero-board");
-  heroBoard = new GoBoard(el, 9, { readOnly: true, mini: true });
+  heroBoard = new GoBoard(document.getElementById("hero-board"), 9, {
+    readOnly: true,
+    mini: true,
+  });
   heroBoard.setPosition([
     { row: 2, col: 2, color: BLACK },
     { row: 2, col: 6, color: WHITE },
