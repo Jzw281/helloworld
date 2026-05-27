@@ -354,14 +354,14 @@ body {
 }
 
 .board-line-h {
-  left: 0;
-  right: 0;
+  left: var(--inset, 6%);
+  right: var(--inset, 6%);
   height: 1px;
 }
 
 .board-line-v {
-  top: 0;
-  bottom: 0;
+  top: var(--inset, 6%);
+  bottom: var(--inset, 6%);
   width: 1px;
 }
 

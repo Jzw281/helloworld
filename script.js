@@ -35,6 +35,7 @@ class GoBoard {
     this.container.classList.add(`size-${this.size}`);
     const span = 100 - 2 * BOARD_INSET;
     this.container.style.setProperty("--stone-size", `${(span / (this.size - 1)) * 0.92}%`);
+    this.container.style.setProperty("--inset", `${BOARD_INSET}%`);
   }
 
   linePos(index) {
@@ -1207,7 +1208,7 @@ const PUZZLES = [
     difficulty: "Beginner",
     size: 9,
     type: "capture",
-    desc: "The white stone in the corner has one liberty. Black to capture.",
+    desc: "A white stone on the top edge has one liberty. Black to capture.",
     stones: [
       { row: 0, col: 1, color: WHITE },
       { row: 1, col: 0, color: BLACK },
@@ -1216,7 +1217,7 @@ const PUZZLES = [
     ],
     solution: { row: 0, col: 2 },
     player: BLACK,
-    hint: "Fill the last liberty along the top edge.",
+    hint: "Fill the last liberty at (0,2).",
   },
   {
     id: 4,
@@ -1248,7 +1249,7 @@ const PUZZLES = [
     ],
     solution: { row: 3, col: 4 },
     player: BLACK,
-    hint: "Close off the last liberty above the stone.",
+    hint: "Close off the last liberty to the right.",
   },
   {
     id: 6,
